@@ -1,0 +1,12 @@
+{
+  "name": "rl-optimized-compiler-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for RL-Optimized Source to Source Compiler",
+  "main": "index.html",
+  "scripts": {
+    "build": "echo 'No build step required'",
+    "start": "echo 'Static files served directly'"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Source-to-Source Compiler with RL Optimization</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js"></script>
+</head>
+<body>
+    
+    <div class="container">
+        <header>
+            <h1>RL-Optimized Source-to-Source Compiler</h1>
+            <p>Visualizing every phase of compilation optimized by reinforcement learning.</p>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-button active" onclick="showTab('compiler')">Compiler</button>
+            <button class="tab-button" onclick="showTab('documentation')">Documentation</button>
+        </div>
+
+        <!-- Compiler Tab -->
+        <div id="compiler" class="tab-content active">
+            <div class="editor-section">
+                <div class="editor-header">
+                    <h3>Source Code Editor</h3>
+                    <div class="editor-controls">
+                        <button id="copyBtn" class="btn btn-secondary">Copy Code</button>
+                        <button id="runBtn" class="btn btn-primary">Compile & Run</button>
+                    </div>
+                </div>
+                <div class="editor-container">
+                    <textarea id="codeEditor" placeholder="Enter your custom language code here...">// Example: Hello World
+print("Hello, World!");
+
+// Variables and arithmetic
+x = 10;
+y = 20;
+result = x + y;
+print("Sum:");
+print(result);</textarea>
+                </div>
+                
+                <div class="input-section">
+                    <h4>Input Data (one value per line)</h4>
+                    <textarea id="inputData" placeholder="Enter input values here, one per line..."></textarea>
+                </div>
+            </div>
+
+            <div class="compilation-stages">
+                <h3>Compilation Stages</h3>
+                
+                <div class="stage">
+                    <div class="stage-header" onclick="toggleStage('tokens')">
+                        <h4>1. Lexical Analysis (Tokens)</h4>
+                    </div>
+                    <div id="tokens" class="stage-content">
+                        <pre id="tokensOutput">Run compilation to see tokens...</pre>
+                    </div>
+                </div>
+
+                <div class="stage">
+                    <div class="stage-header" onclick="toggleStage('ast')">
+                        <h4>2. Abstract Syntax Tree (AST)</h4>
+                    </div>
+                    <div id="ast" class="stage-content">
+                        <pre id="astOutput">Run compilation to see AST...</pre>
+                    </div>
+                </div>
+
+                <div class="stage">
+                    <div class="stage-header" onclick="toggleStage('semantic')">
+                        <h4>3. Semantic Analysis</h4>
+                    </div>
+                    <div id="semantic" class="stage-content">
+                        <pre id="semanticOutput">Run compilation to see semantic analysis...</pre>
+                    </div>
+                </div>
+
+                <div class="stage">
+                    <div class="stage-header" onclick="toggleStage('intermediate')">
+                        <h4>4. Intermediate Code</h4>
+                    </div>
+                    <div id="intermediate" class="stage-content">
+                        <pre id="intermediateOutput">Run compilation to see intermediate code...</pre>
+                    </div>
+                </div>
+
+                <div class="stage">
+                    <div class="stage-header" onclick="toggleStage('optimization')">
+                        <h4>5. RL Optimization</h4>
+                    </div>
+                    <div id="optimization" class="stage-content">
+                        <div id="optimizationLog">Run compilation to see optimization log...</div>
+                        <pre id="optimizedOutput">Optimized code will appear here...</pre>
+                    </div>
+                </div>
+
+                <div class="stage">
+                    <div class="stage-header" onclick="toggleStage('python')">
+                        <h4>6. Generated Python Code</h4>
+                    </div>
+                    <div id="python" class="stage-content">
+                        <pre id="pythonOutput">Run compilation to see generated Python code...</pre>
+                    </div>
+                </div>
+
+                <div class="stage">
+                    <div class="stage-header" onclick="toggleStage('execution')">
+                        <h4>7. Execution Results</h4>
+                    </div>
+                    <div id="execution" class="stage-content">
+                        <div class="execution-info">
+                            <span id="executionTime">Execution time: --</span>
+                            <span id="executionStatus">Status: Ready</span>
+                        </div>
+                        <div class="output-section">
+                            <h5>Output:</h5>
+                            <pre id="outputResult">Run compilation to see output...</pre>
+                        </div>
+                        <div class="error-section" id="errorSection" style="display: none;">
+                            <h5>Errors:</h5>
+                            <pre id="errorResult"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Documentation Tab -->
+        <div id="documentation" class="tab-content">
+            <div class="doc-section">
+                <h2>Custom Programming Language Documentation</h2>
+                
+                <div class="doc-content">
+                    <h3>Language Overview</h3>
+                    <p>This custom programming language is designed to demonstrate core compiler concepts including tokenization, parsing, semantic analysis, intermediate code generation, and optimization. It features a syntax similar to C-style languages, supporting basic constructs such as variable declarations, arithmetic operations, control flow, and input/output.
+                        <br><br>
+                        The language is compiled into Python through a multi-phase process that includes optimization using Reinforcement Learning (RL). This allows the compiler to intelligently apply transformations such as constant folding, dead code elimination, and common subexpression elimination, resulting in cleaner and more efficient target code.
+                        <br><br>
+                        It is built primarily for educational and experimental purposes, providing real-time visualization of each compilation stage and allowing users to understand how high-level code evolves into optimized executable logic.</p>
+                    
+                    <h3>Syntax</h3>
+                    
+                    <h4>Variables and Assignment</h4>
+                    <div class="code-example">
+                        <pre><code>// Basic assignment
+                        x = 10;
+                        name = "John";
+
+                        // Compound assignment
+                        x += 5;  // x = x + 5
+                        y -= 3;  // y = y - 3
+                    </code></pre>
+                    </div>
+                    
+                    <br>
+                    <h4>Data Types</h4>
+                    <ul>
+                        <li><strong>Numbers:</strong> 42, 3.14, -10</li>
+                        <li><strong>Strings:</strong> "Hello World", "Custom Language"</li>
+                    </ul>
+                    
+                    <div class="operator-table">
+                        <h4>Operators</h4>
+                        <h5>Arithmetic Operators</h5>
+                        <ul>
+                            <li><code>+</code> Addition</li>
+                            <li><code>-</code> Subtraction</li>
+                            <li><code>*</code> Multiplication</li>
+                            <li><code>/</code> Division</li>
+                        </ul>
+                        
+                        <h5>Comparison Operators</h5>
+                        <ul>
+                            <li><code>></code> Greater than</li>
+                            <li><code><</code> Less than</li>
+                            <li><code>>=</code> Greater than or equal</li>
+                            <li><code><=</code> Less than or equal</li>
+                            <li><code>==</code> Equal to</li>
+                            <li><code>!=</code> Not equal to</li>
+                        </ul>
+                        
+                        <h5>Logical Operators</h5>
+                        <ul>
+                            <li><code>&&</code> Logical AND</li>
+                            <li><code>||</code> Logical OR</li>
+                            <li><code>!</code> Logical NOT</li>
+                        </ul>
+                    </div>
+                    
+                    <h4>Control Flow</h4>
+                    
+                    <h5>If Statements</h5>
+                    <div class="code-example">
+                        <pre><code>if (condition) {
+                        // statements
+                        } else {
+                        // alternative statements
+                        }</code></pre>
+                    </div>
+                    
+                    <h5>While Loops</h5>
+                    <div class="code-example">
+                        <pre><code>while (condition) {
+                        // loop body
+                        }</code></pre>
+                    </div>
+                    
+                    <br>
+                    <h4>Input/Output</h4>
+                    
+                    <h5>Print Statement</h5>
+                    <div class="code-example">
+                        <pre><code>print("Hello World");
+                        print(variable);
+                        print(expression);
+                    </code></pre>
+                    </div>
+                    
+                    <h5>Scan Statement (Input)</h5>
+                    <div class="code-example">
+                        <pre><code>scan(variable);  // Reads input into variable</code></pre>
+                    </div>
+                    
+                    <br>
+                    <h3>Compiler Features</h3>
+                    <ul>
+    <li><strong>Lexical Analysis:</strong> Scans the input source code and converts it into a stream of tokens, identifying keywords, identifiers, operators, and symbols.</li>
+    <li><strong>Parsing:</strong> Constructs an Abstract Syntax Tree (AST) from the token stream to represent the syntactic structure of the program.</li>
+    <li><strong>Semantic Analysis:</strong> Validates the AST by checking for semantic errors like undeclared variables, type mismatches, and improper control flow.</li>
+    <li><strong>Intermediate Code Generation:</strong> Translates the AST into a lower-level representation(three-address code), suitable for analysis and optimization.</li>
+    <li><strong>RL Optimization:</strong> Applies reinforcement learning techniques to improve code by performing transformations like constant folding, dead code elimination, and subexpression reuse.</li>
+    <li><strong>Code Generation:</strong> Converts the optimized intermediate code into clean and executable Python code that preserves the original program logic.</li>
+    <li><strong>Secure Execution:</strong> Safely runs the generated Python code in a sandboxed environment and displays real-time output or error messages to the user.</li>
+</ul>
+
+                    <h3>Optimization Features</h3>
+                    <p>The compiler uses reinforcement learning to intelligently optimize the intermediate code by applying the following techniques:</p>
+<ul>
+    <li><strong>Constant Folding:</strong> Detects and evaluates constant expressions during compilation to reduce runtime computation.</li>
+    <li><strong>Dead Code Elimination:</strong> Identifies and removes code that has no impact on the final output, such as assignments to unused variables or redundant operations.</li>
+    <li><strong>Common Subexpression Elimination:</strong> Detects duplicate expressions that compute the same value and replaces them with a single variable reference to avoid repeated calculations.</li>
+</ul>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+    <p>Developed by <strong>Bhavya Shah</strong></p>
+    <div class="footer-links">
+        <a href="https://github.com/BhavyaShah7409" target="_blank" style="color: rgb(255, 0, 0);">GitHub</a> |
+        <a href="https://www.linkedin.com/in/bhavya-shah-101a43248" target="_blank" style="color: rgb(255, 0, 0);">LinkedIn</a> |
+        <a href="https://bhavyashah999.vercel.app" target="_blank" style="color: rgb(255, 0, 0);">Portfolio</a>
+    </div>
+</footer>
+
+
+    <script src="script.js"></script>
+</body>
+</html>
