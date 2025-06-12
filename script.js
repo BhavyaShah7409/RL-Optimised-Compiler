@@ -2,6 +2,7 @@
 let codeEditor
 let currentCompilationData = null
 
+// API Base URL - Update this with your actual Render backend URL
 const API_BASE_URL = "https://rl-optimised-compiler.onrender.com"
 
 // Initialize the application
@@ -138,6 +139,10 @@ async function compileAndRun() {
       }),
     })
 
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
     const result = await response.json()
 
     if (!result.success) {
@@ -164,7 +169,13 @@ async function compileAndRun() {
     const errorSection = document.getElementById("errorSection")
     const errorResult = document.getElementById("errorResult")
     errorSection.style.display = "block"
-    errorResult.textContent = error.message
+
+    // Show more detailed error message
+    if (error.message.includes("Failed to fetch") || error.message.includes("HTTP error")) {
+      errorResult.textContent = `Connection Error: Unable to connect to the backend server. Please check if the backend is running at ${API_BASE_URL}`
+    } else {
+      errorResult.textContent = error.message
+    }
 
     // Clear other outputs
     clearCompilationStages()
