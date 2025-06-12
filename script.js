@@ -2,8 +2,7 @@
 let codeEditor
 let currentCompilationData = null
 
-// API Base URL - Update this with your Render backend URL
-const API_BASE_URL = "https://your-render-app-name.onrender.com"
+const API_BASE_URL = "https://rl-optimised-compiler.onrender.com"
 
 // Initialize the application
 document.addEventListener("DOMContentLoaded", () => {
