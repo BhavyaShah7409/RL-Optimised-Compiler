@@ -3,38 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Source-to-Source Compiler with RL Optimization</title>
+    <title>RL-Optimized Source-to-Source Compiler</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
 </head>
 <body>
-    
-    <div class="container">
-        <header>
-            <h1>RL-Optimized Source-to-Source Compiler</h1>
-            <p>Visualizing every phase of compilation optimized by reinforcement learning.</p>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-content">
+                <h1>RL-Optimized Source-to-Source Compiler</h1>
+                <p>Visualizing every phase of compilation optimized by reinforcement learning</p>
+            </div>
         </header>
 
-        <div class="tabs">
-            <button class="tab-button active" onclick="showTab('compiler')">Compiler</button>
-            <button class="tab-button" onclick="showTab('documentation')">Documentation</button>
-        </div>
+        <nav class="app-tabs">
+            <button class="tab-button active" data-tab="compiler">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 16 4-4-4-4"></path><path d="m6 8-4 4 4 4"></path><path d="m14.5 4-5 16"></path></svg>
+                Compiler
+            </button>
+            <button class="tab-button" data-tab="documentation">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Documentation
+            </button>
+        </nav>
 
         <!-- Compiler Tab -->
         <div id="compiler" class="tab-content active">
-            <div class="editor-section">
-                <div class="editor-header">
-                    <h3>Source Code Editor</h3>
-                    <div class="editor-controls">
-                        <button id="copyBtn" class="btn btn-secondary">Copy Code</button>
-                        <button id="runBtn" class="btn btn-primary">Compile & Run</button>
+            <div class="workspace">
+                <div class="editor-panel">
+                    <div class="panel-header">
+                        <h2>Source Code</h2>
+                        <div class="panel-actions">
+                            <button id="copyBtn" class="btn btn-secondary" title="Copy code">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                Copy
+                            </button>
+                            <button id="runBtn" class="btn btn-primary" title="Run code">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                Run
+                            </button>
+                        </div>
                     </div>
-                </div>
-                <div class="editor-container">
-                    <textarea id="codeEditor" placeholder="Enter your custom language code here...">// Example: Hello World
+                    <div class="editor-container">
+                        <textarea id="codeEditor" placeholder="Enter your custom language code here...">// Example: Hello World
 print("Hello, World!");
 
 // Variables and arithmetic
@@ -43,88 +61,167 @@ y = 20;
 result = x + y;
 print("Sum:");
 print(result);</textarea>
-                </div>
-                
-                <div class="input-section">
-                    <h4>Input Data (one value per line)</h4>
-                    <textarea id="inputData" placeholder="Enter input values here, one per line..."></textarea>
-                </div>
-            </div>
-
-            <div class="compilation-stages">
-                <h3>Compilation Stages</h3>
-                
-                <div class="stage">
-                    <div class="stage-header" onclick="toggleStage('tokens')">
-                        <h4>1. Lexical Analysis (Tokens)</h4>
                     </div>
-                    <div id="tokens" class="stage-content">
-                        <pre id="tokensOutput">Run compilation to see tokens...</pre>
+                    
+                    <div class="input-section">
+                        <h3>Input Data</h3>
+                        <p class="input-hint">Enter input values here, one per line</p>
+                        <textarea id="inputData" placeholder="Enter input values..."></textarea>
                     </div>
                 </div>
 
-                <div class="stage">
-                    <div class="stage-header" onclick="toggleStage('ast')">
-                        <h4>2. Abstract Syntax Tree (AST)</h4>
-                    </div>
-                    <div id="ast" class="stage-content">
-                        <pre id="astOutput">Run compilation to see AST...</pre>
-                    </div>
-                </div>
-
-                <div class="stage">
-                    <div class="stage-header" onclick="toggleStage('semantic')">
-                        <h4>3. Semantic Analysis</h4>
-                    </div>
-                    <div id="semantic" class="stage-content">
-                        <pre id="semanticOutput">Run compilation to see semantic analysis...</pre>
-                    </div>
-                </div>
-
-                <div class="stage">
-                    <div class="stage-header" onclick="toggleStage('intermediate')">
-                        <h4>4. Intermediate Code</h4>
-                    </div>
-                    <div id="intermediate" class="stage-content">
-                        <pre id="intermediateOutput">Run compilation to see intermediate code...</pre>
-                    </div>
-                </div>
-
-                <div class="stage">
-                    <div class="stage-header" onclick="toggleStage('optimization')">
-                        <h4>5. RL Optimization</h4>
-                    </div>
-                    <div id="optimization" class="stage-content">
-                        <div id="optimizationLog">Run compilation to see optimization log...</div>
-                        <pre id="optimizedOutput">Optimized code will appear here...</pre>
-                    </div>
-                </div>
-
-                <div class="stage">
-                    <div class="stage-header" onclick="toggleStage('python')">
-                        <h4>6. Generated Python Code</h4>
-                    </div>
-                    <div id="python" class="stage-content">
-                        <pre id="pythonOutput">Run compilation to see generated Python code...</pre>
-                    </div>
-                </div>
-
-                <div class="stage">
-                    <div class="stage-header" onclick="toggleStage('execution')">
-                        <h4>7. Execution Results</h4>
-                    </div>
-                    <div id="execution" class="stage-content">
-                        <div class="execution-info">
-                            <span id="executionTime">Execution time: --</span>
-                            <span id="executionStatus">Status: Ready</span>
+                <div class="compilation-panel">
+                    <div class="panel-header">
+                        <h2>Compilation Pipeline</h2>
+                        <div class="panel-actions">
+                            <button id="expandAllBtn" class="btn btn-text">Expand All</button>
+                            <button id="collapseAllBtn" class="btn btn-text">Collapse All</button>
                         </div>
-                        <div class="output-section">
-                            <h5>Output:</h5>
-                            <pre id="outputResult">Run compilation to see output...</pre>
+                    </div>
+                    
+                    <div class="compilation-stages">
+                        <div class="stage">
+                            <div class="stage-header" data-stage="tokens">
+                                <div class="stage-title">
+                                    <span class="stage-number">1</span>
+                                    <h3>Lexical Analysis</h3>
+                                </div>
+                                <div class="stage-toggle">
+                                    <svg class="icon-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </div>
+                            </div>
+                            <div id="tokens" class="stage-content">
+                                <div class="stage-description">
+                                    <p>Breaks down source code into individual tokens (keywords, operators, identifiers, etc.)</p>
+                                </div>
+                                <pre id="tokensOutput" class="code-output">Run compilation to see tokens...</pre>
+                            </div>
                         </div>
-                        <div class="error-section" id="errorSection" style="display: none;">
-                            <h5>Errors:</h5>
-                            <pre id="errorResult"></pre>
+
+                        <div class="stage">
+                            <div class="stage-header" data-stage="ast">
+                                <div class="stage-title">
+                                    <span class="stage-number">2</span>
+                                    <h3>Abstract Syntax Tree</h3>
+                                </div>
+                                <div class="stage-toggle">
+                                    <svg class="icon-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </div>
+                            </div>
+                            <div id="ast" class="stage-content">
+                                <div class="stage-description">
+                                    <p>Builds a tree structure representing the grammatical structure of the program</p>
+                                </div>
+                                <pre id="astOutput" class="code-output">Run compilation to see AST...</pre>
+                            </div>
+                        </div>
+
+                        <div class="stage">
+                            <div class="stage-header" data-stage="semantic">
+                                <div class="stage-title">
+                                    <span class="stage-number">3</span>
+                                    <h3>Semantic Analysis</h3>
+                                </div>
+                                <div class="stage-toggle">
+                                    <svg class="icon-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </div>
+                            </div>
+                            <div id="semantic" class="stage-content">
+                                <div class="stage-description">
+                                    <p>Checks for semantic errors like undefined variables and type mismatches</p>
+                                </div>
+                                <pre id="semanticOutput" class="code-output">Run compilation to see semantic analysis...</pre>
+                            </div>
+                        </div>
+
+                        <div class="stage">
+                            <div class="stage-header" data-stage="intermediate">
+                                <div class="stage-title">
+                                    <span class="stage-number">4</span>
+                                    <h3>Intermediate Code</h3>
+                                </div>
+                                <div class="stage-toggle">
+                                    <svg class="icon-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </div>
+                            </div>
+                            <div id="intermediate" class="stage-content">
+                                <div class="stage-description">
+                                    <p>Generates three-address code as an intermediate representation</p>
+                                </div>
+                                <pre id="intermediateOutput" class="code-output">Run compilation to see intermediate code...</pre>
+                            </div>
+                        </div>
+
+                        <div class="stage">
+                            <div class="stage-header" data-stage="optimization">
+                                <div class="stage-title">
+                                    <span class="stage-number">5</span>
+                                    <h3>RL-Based Optimization</h3>
+                                </div>
+                                <div class="stage-toggle">
+                                    <svg class="icon-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </div>
+                            </div>
+                            <div id="optimization" class="stage-content">
+                                <div class="stage-description">
+                                    <p>Uses reinforcement learning to optimize code through constant folding, dead code elimination, etc.</p>
+                                </div>
+                                <div id="optimizationLog" class="optimization-log">Run compilation to see optimization log...</div>
+                                <pre id="optimizedOutput" class="code-output">Optimized code will appear here...</pre>
+                            </div>
+                        </div>
+
+                        <div class="stage">
+                            <div class="stage-header" data-stage="python">
+                                <div class="stage-title">
+                                    <span class="stage-number">6</span>
+                                    <h3>Python Code Generation</h3>
+                                </div>
+                                <div class="stage-toggle">
+                                    <svg class="icon-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </div>
+                            </div>
+                            <div id="python" class="stage-content">
+                                <div class="stage-description">
+                                    <p>Translates optimized intermediate code into executable Python</p>
+                                </div>
+                                <pre id="pythonOutput" class="code-output">Run compilation to see generated Python code...</pre>
+                            </div>
+                        </div>
+
+                        <div class="stage">
+                            <div class="stage-header" data-stage="execution">
+                                <div class="stage-title">
+                                    <span class="stage-number">7</span>
+                                    <h3>Execution Results</h3>
+                                </div>
+                                <div class="stage-toggle">
+                                    <svg class="icon-chevron" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </div>
+                            </div>
+                            <div id="execution" class="stage-content">
+                                <div class="stage-description">
+                                    <p>Secure execution of the generated Python code with captured output</p>
+                                </div>
+                                <div class="execution-info">
+                                    <div class="execution-metric">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                        <span id="executionTime">Execution time: --</span>
+                                    </div>
+                                    <div class="execution-metric">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                        <span id="executionStatus">Status: Ready</span>
+                                    </div>
+                                </div>
+                                <div class="output-section">
+                                    <h4>Output</h4>
+                                    <pre id="outputResult" class="code-output">Run compilation to see output...</pre>
+                                </div>
+                                <div class="error-section" id="errorSection">
+                                    <h4>Errors</h4>
+                                    <pre id="errorResult" class="code-output error-output"></pre>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -133,136 +230,191 @@ print(result);</textarea>
 
         <!-- Documentation Tab -->
         <div id="documentation" class="tab-content">
-            <div class="doc-section">
-                <h2>Custom Programming Language Documentation</h2>
+            <div class="documentation-container">
+                <div class="doc-sidebar">
+                    <div class="doc-nav">
+                        <h3>Contents</h3>
+                        <ul>
+                            <li><a href="#overview" class="active">Language Overview</a></li>
+                            <li><a href="#variables">Variables & Assignment</a></li>
+                            <li><a href="#arithmetic">Arithmetic Operations</a></li>
+                            <li><a href="#control-flow">Control Flow</a></li>
+                            <li><a href="#io">Input & Output</a></li>
+                            <li><a href="#operators">Operators</a></li>
+                            <li><a href="#compiler-features">Compiler Features</a></li>
+                        </ul>
+                    </div>
+                </div>
                 
                 <div class="doc-content">
-                    <h3>Language Overview</h3>
-                    <p>This custom programming language is designed to demonstrate core compiler concepts including tokenization, parsing, semantic analysis, intermediate code generation, and optimization. It features a syntax similar to C-style languages, supporting basic constructs such as variable declarations, arithmetic operations, control flow, and input/output.
-                        <br><br>
-                        The language is compiled into Python through a multi-phase process that includes optimization using Reinforcement Learning (RL). This allows the compiler to intelligently apply transformations such as constant folding, dead code elimination, common subexpression elimination, strength reduction and loop invariant code motion resulting in cleaner and more efficient target code.
-                        <br><br>
-                        It is built primarily for educational and experimental purposes, providing real-time visualization of each compilation stage and allowing users to understand how high-level code evolves into optimized executable logic.</p>
+                    <section id="overview" class="doc-section">
+                        <h2>Language Overview</h2>
+                        <p>This custom programming language supports basic programming constructs and compiles to Python with reinforcement learning-based optimization.</p>
+                    </section>
                     
-                    <h3>Syntax</h3>
-                    
-                    <h4>Variables and Assignment</h4>
-                    <div class="code-example">
-                        <pre><code>// Basic assignment
-x = 10;
+                    <section id="variables" class="doc-section">
+                        <h2>Variables and Assignment</h2>
+                        
+                        <h3>Basic Assignment</h3>
+                        <div class="code-example">
+                            <pre class="code-block">x = 10;
 name = "John";
-// Compound assignment
-x += 5;  // x = x + 5
-y -= 3;  // y = y - 3
-                    </code></pre>
-                    </div>
+print(x);
+print(name);</pre>
+                            <div class="code-output">
+                                <h4>Output:</h4>
+                                <pre>10
+John</pre>
+                            </div>
+                        </div>
+
+                        <h3>Compound Assignment</h3>
+                        <div class="code-example">
+                            <pre class="code-block">x = 5;
+x += 3;  // x = x + 3
+print(x);</pre>
+                            <div class="code-output">
+                                <h4>Output:</h4>
+                                <pre>8</pre>
+                            </div>
+                        </div>
+                    </section>
                     
-                    <br>
-                    <h4>Data Types</h4>
-                    <ul>
-                        <li><strong>Numbers:</strong> 42, 3.14, -10</li>
-                        <li><strong>Strings:</strong> "Hello World", "Custom Language"</li>
-                    </ul>
+                    <section id="arithmetic" class="doc-section">
+                        <h2>Arithmetic Operations</h2>
+                        <div class="code-example">
+                            <pre class="code-block">a = 10;
+b = 3;
+print(a + b);
+print(a - b);
+print(a * b);
+print(a / b);</pre>
+                            <div class="code-output">
+                                <h4>Output:</h4>
+                                <pre>13
+7
+30
+3.3333333333333335</pre>
+                            </div>
+                        </div>
+                    </section>
                     
-                    <div class="operator-table">
-                        <h4>Operators</h4>
-                        <h5>Arithmetic Operators</h5>
-                        <ul>
+                    <section id="control-flow" class="doc-section">
+                        <h2>Control Flow</h2>
+                        
+                        <h3>If Statements</h3>
+                        <div class="code-example">
+                            <pre class="code-block">age = 20;
+if (age >= 18) {
+    print("Adult");
+} else {
+    print("Minor");
+}</pre>
+                            <div class="code-output">
+                                <h4>Output:</h4>
+                                <pre>Adult</pre>
+                            </div>
+                        </div>
+
+                        <h3>While Loops</h3>
+                        <div class="code-example">
+                            <pre class="code-block">counter = 1;
+while (counter <= 3) {
+    print(counter);
+    counter += 1;
+}</pre>
+                            <div class="code-output">
+                                <h4>Output:</h4>
+                                <pre>1
+2
+3</pre>
+                            </div>
+                        </div>
+                    </section>
+                    
+                    <section id="io" class="doc-section">
+                        <h2>Input and Output</h2>
+                        <div class="code-example">
+                            <pre class="code-block">print("Enter name:");
+scan(name);
+print("Hello");
+print(name);</pre>
+                            <div class="code-output">
+                                <h4>Output (with input "Alice"):</h4>
+                                <pre>Enter name:
+Hello
+Alice</pre>
+                            </div>
+                        </div>
+                    </section>
+                    
+                    <section id="operators" class="doc-section">
+                        <h2>Operators</h2>
+                        
+                        <h3>Arithmetic Operators</h3>
+                        <ul class="simple-list">
                             <li><code>+</code> Addition</li>
                             <li><code>-</code> Subtraction</li>
                             <li><code>*</code> Multiplication</li>
                             <li><code>/</code> Division</li>
                         </ul>
                         
-                        <h5>Comparison Operators</h5>
-                        <ul>
-                            <li><code>></code> Greater than</li>
-                            <li><code><</code> Less than</li>
-                            <li><code>>=</code> Greater than or equal</li>
-                            <li><code><=</code> Less than or equal</li>
+                        <h3>Comparison Operators</h3>
+                        <ul class="simple-list">
+                            <li><code>&gt;</code> Greater than</li>
+                            <li><code>&lt;</code> Less than</li>
+                            <li><code>&gt;=</code> Greater than or equal</li>
+                            <li><code>&lt;=</code> Less than or equal</li>
                             <li><code>==</code> Equal to</li>
                             <li><code>!=</code> Not equal to</li>
                         </ul>
                         
-                        <h5>Logical Operators</h5>
-                        <ul>
+                        <h3>Logical Operators</h3>
+                        <ul class="simple-list">
                             <li><code>&&</code> Logical AND</li>
                             <li><code>||</code> Logical OR</li>
                             <li><code>!</code> Logical NOT</li>
                         </ul>
-                    </div>
+                        
+                        <h3>Assignment Operators</h3>
+                        <ul class="simple-list">
+                            <li><code>=</code> Assign</li>
+                            <li><code>+=</code> Add and assign</li>
+                            <li><code>-=</code> Subtract and assign</li>
+                        </ul>
+                    </section>
                     
-                    <h4>Control Flow</h4>
-                    
-                    <h5>If Statements</h5>
-                    <div class="code-example">
-                        <pre><code>if (condition) {
-// statements
-} else {
-// alternative statements
-}</code></pre>
-                    </div>
-                    
-                    <h5>While Loops</h5>
-                    <div class="code-example">
-                        <pre><code>while (condition) {
-// loop body
-}</code></pre>
-                    </div>
-                    
-                    <br>
-                    <h4>Input/Output</h4>
-                    
-                    <h5>Print Statement</h5>
-                    <div class="code-example">
-                        <pre><code>print("Hello World");
-print(variable);
-print(expression);
-                    </code></pre>
-                    </div>
-                    
-                    <h5>Scan Statement (Input)</h5>
-                    <div class="code-example">
-                        <pre><code>scan(variable);  // Reads input into variable</code></pre>
-                    </div>
-                    
-                    <br>
-                    <h3>Compiler Features</h3>
-                    <ul>
-    <li><strong>Lexical Analysis:</strong> Scans the input source code and converts it into a stream of tokens, identifying keywords, identifiers, operators, and symbols.</li>
-    <li><strong>Parsing:</strong> Constructs an Abstract Syntax Tree (AST) from the token stream to represent the syntactic structure of the program.</li>
-    <li><strong>Semantic Analysis:</strong> Validates the AST by checking for semantic errors such as undeclared variables, type mismatches, and improper control flow.</li>
-    <li><strong>Intermediate Code Generation:</strong> Translates the AST into a lower-level representation (three-address code), suitable for analysis and optimization.</li>
-    <li><strong>RL Optimization:</strong> Applies reinforcement learning techniques to enhance code by performing transformations like constant folding, dead code elimination, strength reduction, loop invariant motion, and common subexpression reuse.</li>
-    <li><strong>Code Generation:</strong> Converts the optimized intermediate code into clean and executable Python code that preserves the original program logic.</li>
-    <li><strong>Secure Execution:</strong> Safely runs the generated Python code in a sandboxed environment and displays real-time output or error messages to the user.</li>
-</ul>
-
-                    <h3>Optimization Features</h3>
-                    <p>The compiler uses reinforcement learning to intelligently optimize the intermediate code by applying the following techniques:</p>
-<ul>
-    <li><strong>Constant Folding:</strong> Detects and evaluates constant expressions during compilation to reduce runtime computation.</li>
-    <li><strong>Dead Code Elimination:</strong> Identifies and removes code that has no impact on the final output, such as assignments to unused variables or redundant operations.</li>
-    <li><strong>Common Subexpression Elimination:</strong> Detects duplicate expressions that compute the same value and replaces them with a single variable reference to avoid repeated calculations.</li>
-    <li><strong>Strength Reduction:</strong> Replaces expensive operations like multiplication or exponentiation with equivalent but faster operations such as additions or bitwise shifts.</li>
-    <li><strong>Loop Invariant Code Motion:</strong> Moves computations that remain constant during every iteration of a loop outside the loop to avoid redundant execution.</li>
-</ul>
-
-
+                    <section id="compiler-features" class="doc-section">
+                        <h2>Compiler Features</h2>
+                        <ul class="feature-list">
+                            <li><strong>Lexical Analysis:</strong> Tokenizes source code into meaningful symbols</li>
+                            <li><strong>Syntax Analysis:</strong> Builds Abstract Syntax Tree (AST) from tokens</li>
+                            <li><strong>Semantic Analysis:</strong> Checks for semantic errors and variable usage</li>
+                            <li><strong>Intermediate Code Generation:</strong> Creates three-address code representation</li>
+                            <li><strong>RL Optimization:</strong> Uses reinforcement learning for code optimization</li>
+                            <li><strong>Code Generation:</strong> Translates to executable Python code</li>
+                            <li><strong>Secure Execution:</strong> Runs generated code in a safe environment</li>
+                        </ul>
+                    </section>
                 </div>
             </div>
         </div>
     </div>
 
-    <footer class="footer">
-    <p>Developed by <strong>Bhavya Shah</strong></p>
-    <div class="footer-links">
-        <a href="https://github.com/BhavyaShah7409" target="_blank" style="color: rgb(255, 0, 0);">GitHub</a> |
-        <a href="https://www.linkedin.com/in/bhavya-shah-101a43248" target="_blank" style="color: rgb(255, 0, 0);">LinkedIn</a> |
-        <a href="https://bhavyashah999.vercel.app" target="_blank" style="color: rgb(255, 0, 0);">Portfolio</a>
-    </div>
-</footer>
-
+    <footer class="app-footer">
+        <p>Developed by Bhavya Shah</p>
+        <div class="social-links">
+            <a href="https://github.com/BhavyaShah7409" target="_blank" title="GitHub">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+            </a>
+            <a href="https://www.linkedin.com/in/bhavya-shah-101a43248/" target="_blank" title="LinkedIn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg>
+            </a>
+            <a href="https://bhavyashah999.vercel.app" target="_blank" title="Portfolio">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            </a>
+        </div>
+    </footer>
 
     <script src="script.js"></script>
 </body>
