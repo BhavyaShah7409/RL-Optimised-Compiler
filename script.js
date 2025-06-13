@@ -1,6 +1,7 @@
 // Global variables
 let codeEditor
 let currentCompilationData = null
+const allStagesExpanded = true
 
 // API Base URL - Update this with your actual Render backend URL
 const API_BASE_URL = "https://rl-optimised-compiler.onrender.com"
@@ -9,6 +10,7 @@ const API_BASE_URL = "https://rl-optimised-compiler.onrender.com"
 document.addEventListener("DOMContentLoaded", () => {
   initializeEditor()
   setupEventListeners()
+  setupDocumentationNav()
 })
 
 // Initialize CodeMirror editor
@@ -16,7 +18,7 @@ function initializeEditor() {
   const textarea = document.getElementById("codeEditor")
   codeEditor = CodeMirror.fromTextArea(textarea, {
     mode: "text/x-csrc",
-    theme: "default",
+    theme: "default", // Light theme
     lineNumbers: true,
     indentUnit: 4,
     tabSize: 4,
@@ -29,7 +31,21 @@ function initializeEditor() {
     gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
   })
 
-  codeEditor.setSize(null, 300)
+  // Load saved code on startup
+  const savedCode = localStorage.getItem("compiler_code")
+  if (savedCode) {
+    codeEditor.setValue(savedCode)
+  }
+
+  // Auto-save functionality
+  let autoSaveTimeout
+  codeEditor.on("change", () => {
+    clearTimeout(autoSaveTimeout)
+    autoSaveTimeout = setTimeout(() => {
+      const code = codeEditor.getValue()
+      localStorage.setItem("compiler_code", code)
+    }, 1000)
+  })
 }
 
 // Setup event listeners
@@ -40,17 +56,69 @@ function setupEventListeners() {
   // Copy button
   document.getElementById("copyBtn").addEventListener("click", copyCode)
 
+  // Tab switching
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.addEventListener("click", (e) => {
+      const tabName = e.currentTarget.getAttribute("data-tab")
+      switchTab(tabName)
+    })
+  })
+
   // Stage toggles
   document.querySelectorAll(".stage-header").forEach((header) => {
-    header.addEventListener("click", function () {
-      const stageId = this.getAttribute("onclick").match(/'([^']+)'/)[1]
+    header.addEventListener("click", () => {
+      const stageId = header.getAttribute("data-stage")
       toggleStage(stageId)
+    })
+  })
+
+  // Expand/Collapse all buttons
+  document.getElementById("expandAllBtn").addEventListener("click", expandAllStages)
+  document.getElementById("collapseAllBtn").addEventListener("click", collapseAllStages)
+
+  // Keyboard shortcuts
+  document.addEventListener("keydown", (event) => {
+    // Ctrl+Enter or Cmd+Enter to compile and run
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault()
+      compileAndRun()
+    }
+
+    // Ctrl+/ or Cmd+/ to toggle comments (basic implementation)
+    if ((event.ctrlKey || event.metaKey) && event.key === "/") {
+      event.preventDefault()
+      toggleComment()
+    }
+  })
+}
+
+// Setup documentation navigation
+function setupDocumentationNav() {
+  const docLinks = document.querySelectorAll(".doc-nav a")
+
+  docLinks.forEach((link) => {
+    link.addEventListener("click", (e) => {
+      e.preventDefault()
+
+      // Remove active class from all links
+      docLinks.forEach((l) => l.classList.remove("active"))
+
+      // Add active class to clicked link
+      link.classList.add("active")
+
+      // Scroll to section
+      const targetId = link.getAttribute("href").substring(1)
+      const targetSection = document.getElementById(targetId)
+
+      if (targetSection) {
+        targetSection.scrollIntoView({ behavior: "smooth" })
+      }
     })
   })
 }
 
 // Tab switching
-function showTab(tabName) {
+function switchTab(tabName) {
   // Hide all tab contents
   document.querySelectorAll(".tab-content").forEach((content) => {
     content.classList.remove("active")
@@ -65,22 +133,29 @@ function showTab(tabName) {
   document.getElementById(tabName).classList.add("active")
 
   // Add active class to clicked tab button
-  event.target.classList.add("active")
+  document.querySelector(`.tab-button[data-tab="${tabName}"]`).classList.add("active")
 }
 
 // Toggle compilation stage visibility
 function toggleStage(stageId) {
   const content = document.getElementById(stageId)
-  const header = content.previousElementSibling
-  const icon = header.querySelector(".toggle-icon")
+  const stage = content.closest(".stage")
 
-  if (content.classList.contains("collapsed")) {
-    content.classList.remove("collapsed")
-    icon.textContent = "-"
-  } else {
-    content.classList.add("collapsed")
-    icon.textContent = "+"
-  }
+  stage.classList.toggle("collapsed")
+}
+
+// Expand all stages
+function expandAllStages() {
+  document.querySelectorAll(".stage").forEach((stage) => {
+    stage.classList.remove("collapsed")
+  })
+}
+
+// Collapse all stages
+function collapseAllStages() {
+  document.querySelectorAll(".stage").forEach((stage) => {
+    stage.classList.add("collapsed")
+  })
 }
 
 // Copy code to clipboard
@@ -90,21 +165,45 @@ function copyCode() {
     .writeText(code)
     .then(() => {
       const btn = document.getElementById("copyBtn")
-      const originalText = btn.textContent
-      btn.textContent = "Copied!"
-      btn.style.backgroundColor = "#28a745"
-      btn.style.color = "white"
+      const originalText = btn.innerHTML
+      btn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+        Copied!
+      `
+      btn.classList.add("success")
 
       setTimeout(() => {
-        btn.textContent = originalText
-        btn.style.backgroundColor = ""
-        btn.style.color = ""
+        btn.innerHTML = originalText
+        btn.classList.remove("success")
       }, 2000)
     })
     .catch((err) => {
       console.error("Failed to copy code:", err)
-      alert("Failed to copy code to clipboard")
+      showToast("Failed to copy code to clipboard", "error")
     })
+}
+
+// Show toast notification
+function showToast(message, type = "info") {
+  // Create toast element if it doesn't exist
+  let toast = document.querySelector(".toast")
+  if (!toast) {
+    toast = document.createElement("div")
+    toast.className = "toast"
+    document.body.appendChild(toast)
+  }
+
+  // Set message and type
+  toast.textContent = message
+  toast.className = `toast ${type}`
+
+  // Show toast
+  toast.classList.add("show")
+
+  // Hide toast after 3 seconds
+  setTimeout(() => {
+    toast.classList.remove("show")
+  }, 3000)
 }
 
 // Main compilation and execution function
@@ -113,7 +212,10 @@ async function compileAndRun() {
   const originalText = runBtn.innerHTML
 
   // Show loading state
-  runBtn.innerHTML = '<span class="loading"></span>Compiling...'
+  runBtn.innerHTML = `
+    <span class="loading"></span>
+    Compiling...
+  `
   runBtn.disabled = true
 
   // Update status
@@ -154,6 +256,13 @@ async function compileAndRun() {
 
     // Update all compilation stages
     updateCompilationStages(result.data)
+
+    // Expand the execution results stage
+    const executionStage = document.getElementById("execution").closest(".stage")
+    executionStage.classList.remove("collapsed")
+
+    // Scroll to execution results
+    executionStage.scrollIntoView({ behavior: "smooth" })
 
     // Update execution status
     if (result.data.success) {
@@ -250,10 +359,10 @@ function updateSemanticOutput(errors) {
   const output = document.getElementById("semanticOutput")
   if (errors && errors.length > 0) {
     output.textContent = `Semantic Errors Found:\n${errors.join("\n")}`
-    output.style.color = "#dc3545"
+    output.classList.add("error-output")
   } else {
     output.textContent = "No semantic errors found"
-    output.style.color = "#28a745"
+    output.classList.remove("error-output")
   }
 }
 
@@ -273,9 +382,9 @@ function updateOptimizationOutput(optimizedCode, optimizationLog) {
   const codeElement = document.getElementById("optimizedOutput")
 
   if (optimizationLog && optimizationLog.length > 0) {
-    logElement.innerHTML = `<strong>Optimizations Applied:</strong><br>${optimizationLog.join("<br>")}`
+    logElement.innerHTML = optimizationLog.join("<br>")
   } else {
-    logElement.innerHTML = "<strong>No optimizations applied</strong>"
+    logElement.innerHTML = "No optimizations applied"
   }
 
   if (optimizedCode && optimizedCode.length > 0) {
@@ -330,21 +439,6 @@ function clearCompilationStages() {
   document.getElementById("executionTime").textContent = "Execution time: --"
 }
 
-// Keyboard shortcuts
-document.addEventListener("keydown", (event) => {
-  // Ctrl+Enter or Cmd+Enter to compile and run
-  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-    event.preventDefault()
-    compileAndRun()
-  }
-
-  // Ctrl+/ or Cmd+/ to toggle comments (basic implementation)
-  if ((event.ctrlKey || event.metaKey) && event.key === "/") {
-    event.preventDefault()
-    toggleComment()
-  }
-})
-
 // Basic comment toggling
 function toggleComment() {
   const cursor = codeEditor.getCursor()
@@ -363,20 +457,44 @@ function toggleComment() {
   }
 }
 
-// Auto-save functionality (optional)
-let autoSaveTimeout
-if (typeof codeEditor !== "undefined") {
-  codeEditor.on("change", () => {
-    clearTimeout(autoSaveTimeout)
-    autoSaveTimeout = setTimeout(() => {
-      const code = codeEditor.getValue()
-      localStorage.setItem("compiler_code", code)
-    }, 1000)
-  })
-
-  // Load saved code on startup
-  const savedCode = localStorage.getItem("compiler_code")
-  if (savedCode) {
-    codeEditor.setValue(savedCode)
-  }
+// Add CSS for toast notifications
+const toastStyle = document.createElement("style")
+toastStyle.textContent = `
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
+  z-index: 1000;
+  max-width: 300px;
 }
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast.info {
+  border-left: 4px solid var(--color-primary);
+}
+
+.toast.success {
+  border-left: 4px solid var(--color-success);
+}
+
+.toast.error {
+  border-left: 4px solid var(--color-error);
+}
+
+.toast.warning {
+  border-left: 4px solid var(--color-warning);
+}
+`
+document.head.appendChild(toastStyle)
