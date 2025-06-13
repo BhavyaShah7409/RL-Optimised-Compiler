@@ -140,7 +140,7 @@ print(result);</textarea>
                     <h3>Language Overview</h3>
                     <p>This custom programming language is designed to demonstrate core compiler concepts including tokenization, parsing, semantic analysis, intermediate code generation, and optimization. It features a syntax similar to C-style languages, supporting basic constructs such as variable declarations, arithmetic operations, control flow, and input/output.
                         <br><br>
-                        The language is compiled into Python through a multi-phase process that includes optimization using Reinforcement Learning (RL). This allows the compiler to intelligently apply transformations such as constant folding, dead code elimination, and common subexpression elimination, resulting in cleaner and more efficient target code.
+                        The language is compiled into Python through a multi-phase process that includes optimization using Reinforcement Learning (RL). This allows the compiler to intelligently apply transformations such as constant folding, dead code elimination, common subexpression elimination and strength reduction resulting in cleaner and more efficient target code.
                         <br><br>
                         It is built primarily for educational and experimental purposes, providing real-time visualization of each compilation stage and allowing users to understand how high-level code evolves into optimized executable logic.</p>
                     
@@ -244,6 +244,7 @@ print(expression);
     <li><strong>Constant Folding:</strong> Detects and evaluates constant expressions during compilation to reduce runtime computation.</li>
     <li><strong>Dead Code Elimination:</strong> Identifies and removes code that has no impact on the final output, such as assignments to unused variables or redundant operations.</li>
     <li><strong>Common Subexpression Elimination:</strong> Detects duplicate expressions that compute the same value and replaces them with a single variable reference to avoid repeated calculations.</li>
+    <li><strong>Strength Reduction:</strong> Replaces expensive operations like multiplication or exponentiation with equivalent but faster operations such as additions or bitwise shifts.</li>
 </ul>
 
                 </div>
