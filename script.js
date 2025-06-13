@@ -335,10 +335,21 @@ function updateCompilationStages(data) {
 function updateTokensOutput(tokens) {
   const output = document.getElementById("tokensOutput")
   if (tokens && tokens.length > 0) {
+    // Format each token with proper padding and handle newlines
     const tokenList = tokens
-      .map((token) => `${token.type.padEnd(15)} | ${token.value.padEnd(10)} | Line ${token.line}, Col ${token.column}`)
+      .map((token) => {
+        // Replace newline values with visible representation
+        const displayValue = token.type === "NEWLINE" ? "\\n" : token.value
+
+        // Fix token type display (RBRACE should be RPAREN)
+        const displayType = token.type === "RBRACE" ? "RPAREN" : token.type
+
+        // Ensure consistent padding
+        return `${displayType.padEnd(15)} | ${displayValue.padEnd(15)} | Line ${token.line}, Col ${token.column}`
+      })
       .join("\n")
-    output.textContent = `Type            | Value      | Position\n${"─".repeat(50)}\n${tokenList}`
+
+    output.textContent = `Type            | Value           | Position\n${"─".repeat(60)}\n${tokenList}`
   } else {
     output.textContent = "No tokens generated"
   }
