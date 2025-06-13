@@ -96,30 +96,51 @@ class RLOptimizer:
         return code
 
     def apply_constant_folding(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
-        if position >= len(code):
-            return code
-        instr = code[position]
-        try:
-            val1 = float(instr.arg1)
-            val2 = float(instr.arg2)
-            if instr.operation == '+':
-                result = val1 + val2
-            elif instr.operation == '-':
-                result = val1 - val2
-            elif instr.operation == '*':
-                result = val1 * val2
-            elif instr.operation == '/':
-                if val2 == 0:
-                    return code  # Avoid divide by zero
-                result = val1 / val2
-            else:
+    """Apply constant folding optimization to 3AC if both arguments are constants."""
+    if position >= len(code):
+        return code
+
+    instr = code[position]
+    op = instr.operation
+    arg1 = instr.arg1
+    arg2 = instr.arg2
+
+    if op not in ['+', '-', '*', '/']:
+        return code
+
+    if not (self.is_constant(arg1) and self.is_constant(arg2)):
+        return code
+
+    try:
+        val1 = float(arg1)
+        val2 = float(arg2)
+
+        if op == '+':
+            result = val1 + val2
+        elif op == '-':
+            result = val1 - val2
+        elif op == '*':
+            result = val1 * val2
+        elif op == '/':
+            if val2 == 0:
+                print(f"[DEBUG] Skipped division by zero at position {position}")
                 return code
-            print(f"[DEBUG] Constant Folding: {instr.arg1} {instr.operation} {instr.arg2} → {result}")
-            new_code = code.copy()
-            new_code[position] = ThreeAddressCode('ASSIGN', str(result), None, instr.result)
-            return new_code
-        except:
+            result = val1 / val2
+        else:
             return code
+
+        # Replace the original instruction with an ASSIGN of the folded value
+        new_instr = ThreeAddressCode('ASSIGN', str(result), None, instr.result)
+        new_code = code.copy()
+        new_code[position] = new_instr
+
+        print(f"[DEBUG] Constant Folding at position {position}: {arg1} {op} {arg2} → {result}")
+        return new_code
+
+    except Exception as e:
+        print(f"[DEBUG] Folding error at position {position}: {e}")
+        return code
+
 
     def apply_dead_code_elimination(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
         if position >= len(code):
