@@ -6,9 +6,10 @@ from .intermediate_code import ThreeAddressCode
 
 @dataclass
 class OptimizationAction:
-    type: str  # 'constant_folding', 'dead_code_elimination', 'common_subexpression', 'strength_reduction'
+    type: str  # 'constant_folding', 'dead_code_elimination', 'common_subexpression', 'loop_invariant'
     position: int
     confidence: float = 0.0
+    loop_info: Dict[str, Any] = None
     
     def __str__(self) -> str:
         return f"{self.type} at position {self.position} (confidence: {self.confidence:.2f})"
@@ -47,7 +48,7 @@ class RLOptimizer:
         
         # First pass: collect all variable definitions
         for i, instr in enumerate(code):
-            if instr.result and instr.result not in ('LABEL', 'GOTO', 'IF_FALSE', 'PRINT'):
+            if instr.result and instr.operation not in ['LABEL', 'GOTO', 'IF_FALSE', 'PRINT']:
                 if instr.result not in self.variable_usage:
                     self.variable_usage[instr.result] = set()
         
@@ -63,7 +64,79 @@ class RLOptimizer:
                 if instr.arg2 in self.variable_usage:
                     self.variable_usage[instr.arg2].add(i)
     
-    def get_possible_actions(self, code: List[ThreeAddressCode], position: int) -> List[OptimizationAction]:
+    def find_loops(self, code: List[ThreeAddressCode]) -> List[Dict[str, Any]]:
+        """Find loops in the code - simplified version"""
+        loops = []
+        labels = {}
+        
+        # Find all labels
+        for i, instr in enumerate(code):
+            if instr.operation == 'LABEL':
+                labels[instr.arg1] = i
+        
+        # Find loops by looking for backward jumps
+        for i, instr in enumerate(code):
+            if instr.operation == 'GOTO' and instr.arg1 in labels:
+                target = labels[instr.arg1]
+                if target < i:  # Backward jump = loop
+                    # Find the condition (IF_FALSE) that exits the loop
+                    condition_pos = -1
+                    for j in range(target, i):
+                        if code[j].operation == 'IF_FALSE':
+                            condition_pos = j
+                            break
+                    
+                    if condition_pos != -1:
+                        loops.append({
+                            'start': target,
+                            'end': i,
+                            'condition': condition_pos,
+                            'modified_vars': set(),
+                            'invariant_candidates': []
+                        })
+        
+        # For each loop, find variables modified inside it
+        for loop in loops:
+            for i in range(loop['start'], loop['end'] + 1):
+                instr = code[i]
+                if instr.result and instr.operation not in ['LABEL', 'GOTO', 'IF_FALSE']:
+                    loop['modified_vars'].add(instr.result)
+        
+        return loops
+    
+    def find_loop_invariants(self, code: List[ThreeAddressCode], loops: List[Dict[str, Any]]) -> None:
+        """Find loop invariant code"""
+        for loop in loops:
+            loop['invariant_candidates'] = []
+            
+            for i in range(loop['start'], loop['end'] + 1):
+                instr = code[i]
+                
+                # Skip control flow instructions
+                if instr.operation in ['LABEL', 'GOTO', 'IF_FALSE']:
+                    continue
+                
+                # Check if this instruction is invariant
+                is_invariant = True
+                
+                # Check operands - they must not be modified in the loop
+                for arg in [instr.arg1, instr.arg2]:
+                    if arg and isinstance(arg, str) and not self.is_constant(arg):
+                        if arg in loop['modified_vars']:
+                            is_invariant = False
+                            break
+                
+                # The result must not be used elsewhere in the loop
+                if instr.result in self.variable_usage:
+                    for usage in self.variable_usage[instr.result]:
+                        if loop['start'] <= usage <= loop['end'] and usage != i:
+                            is_invariant = False
+                            break
+                
+                if is_invariant:
+                    loop['invariant_candidates'].append(i)
+    
+    def get_possible_actions(self, code: List[ThreeAddressCode], position: int, loops: List[Dict[str, Any]]) -> List[OptimizationAction]:
         """Get possible optimization actions for the current position"""
         actions = []
         
@@ -100,10 +173,16 @@ class RLOptimizer:
             if (self.is_constant(current.arg1) and self.try_parse_float(current.arg1) == 2) or \
                (self.is_constant(current.arg2) and self.try_parse_float(current.arg2) == 2):
                 actions.append(OptimizationAction('strength_reduction', position, 0.5))
-            
-            # Replace multiplication by power of 2 with shift
-            if self.is_constant(current.arg2) and self.is_power_of_two(self.try_parse_float(current.arg2)):
-                actions.append(OptimizationAction('strength_reduction', position, 0.5))
+        
+        # Loop invariant code motion
+        for loop_idx, loop in enumerate(loops):
+            if position in loop['invariant_candidates']:
+                actions.append(OptimizationAction(
+                    'loop_invariant', 
+                    position, 
+                    0.9,  # High confidence for loop optimizations
+                    {'loop_idx': loop_idx}
+                ))
         
         return actions
     
@@ -179,7 +258,7 @@ class RLOptimizer:
         
         return best_action or random.choice(actions)
     
-    def apply_optimization(self, code: List[ThreeAddressCode], action: OptimizationAction) -> List[ThreeAddressCode]:
+    def apply_optimization(self, code: List[ThreeAddressCode], action: OptimizationAction, loops: List[Dict[str, Any]]) -> List[ThreeAddressCode]:
         """Apply the chosen optimization action"""
         if action.type == 'constant_folding':
             return self.apply_constant_folding(code, action.position)
@@ -189,6 +268,8 @@ class RLOptimizer:
             return self.apply_common_subexpression_elimination(code, action.position)
         elif action.type == 'strength_reduction':
             return self.apply_strength_reduction(code, action.position)
+        elif action.type == 'loop_invariant':
+            return self.apply_loop_invariant_motion(code, action, loops)
         
         return code
     
@@ -295,20 +376,30 @@ class RLOptimizer:
                 # 2 * x -> x + x
                 new_code[position] = ThreeAddressCode('+', instr.arg2, instr.arg2, instr.result)
                 return new_code
-            
-            # Replace multiplication by power of 2 with shift
-            if self.is_constant(instr.arg2):
-                val = self.try_parse_float(instr.arg2)
-                if val and self.is_power_of_two(val):
-                    # Calculate log2(val) to get shift amount
-                    shift_amount = int(np.log2(val))
-                    # We can't directly represent shifts in our IR, so we'll add a comment
-                    # In a real compiler, we'd use a SHIFT operation
-                    new_code[position] = ThreeAddressCode('*', instr.arg1, str(val), instr.result)
-                    new_code[position].operation = f"* (shift left by {shift_amount})"
-                    return new_code
         
         return code
+    
+    def apply_loop_invariant_motion(self, code: List[ThreeAddressCode], action: OptimizationAction, loops: List[Dict[str, Any]]) -> List[ThreeAddressCode]:
+        """Move loop-invariant code outside the loop"""
+        position = action.position
+        loop_idx = action.loop_info.get('loop_idx') if action.loop_info else None
+        
+        if position >= len(code) or loop_idx is None or loop_idx >= len(loops):
+            return code
+        
+        loop = loops[loop_idx]
+        instr = code[position]
+        
+        # Create a new code list
+        new_code = code.copy()
+        
+        # Remove the instruction from its current position
+        del new_code[position]
+        
+        # Insert it before the loop starts
+        new_code.insert(loop['start'], instr)
+        
+        return new_code
     
     def calculate_reward(self, original_code: List[ThreeAddressCode], optimized_code: List[ThreeAddressCode]) -> float:
         """Calculate reward for the optimization"""
@@ -321,10 +412,6 @@ class RLOptimizer:
             # Reward for constant folding
             if instr.operation == 'ASSIGN' and self.is_constant(instr.arg1):
                 reward += 5
-                
-            # Reward for strength reduction
-            if isinstance(instr.operation, str) and "shift" in instr.operation:
-                reward += 8
         
         # Penalty for making code worse
         if len(optimized_code) > len(original_code):
@@ -360,7 +447,11 @@ class RLOptimizer:
         # Analyze variable usage for dead code elimination
         self.analyze_variable_usage(optimized_code)
         
-        max_iterations = 20  # Increased from 10 to allow more optimizations
+        # Find loops and loop invariants
+        loops = self.find_loops(optimized_code)
+        self.find_loop_invariants(optimized_code, loops)
+        
+        max_iterations = 20
         iteration = 0
         
         while iteration < max_iterations:
@@ -369,7 +460,7 @@ class RLOptimizer:
             # Try to apply optimizations at each position
             for position in range(len(optimized_code)):
                 state = self.get_state_key(optimized_code, position)
-                actions = self.get_possible_actions(optimized_code, position)
+                actions = self.get_possible_actions(optimized_code, position, loops)
                 
                 if not actions:
                     continue
@@ -379,7 +470,7 @@ class RLOptimizer:
                     continue
                 
                 # Apply optimization
-                new_code = self.apply_optimization(optimized_code, action)
+                new_code = self.apply_optimization(optimized_code, action, loops)
                 
                 # Check if code actually changed
                 if len(new_code) != len(optimized_code) or any(new_code[i] != optimized_code[i] for i in range(min(len(new_code), len(optimized_code)))):
@@ -393,10 +484,17 @@ class RLOptimizer:
                     # Accept improvement
                     if reward > 0:
                         optimized_code = new_code
-                        optimization_log.append(f"Applied {action.type} at position {action.position} (reward: {reward:.2f})")
                         
-                        # Re-analyze variable usage after code changes
+                        # Log the optimization
+                        if action.type == 'loop_invariant':
+                            optimization_log.append(f"Applied loop invariant code motion at position {action.position} (reward: {reward:.2f})")
+                        else:
+                            optimization_log.append(f"Applied {action.type} at position {action.position} (reward: {reward:.2f})")
+                        
+                        # Re-analyze after code changes
                         self.analyze_variable_usage(optimized_code)
+                        loops = self.find_loops(optimized_code)
+                        self.find_loop_invariants(optimized_code, loops)
                         
                         improved = True
                         break
