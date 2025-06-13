@@ -82,61 +82,61 @@ class RLOptimizer:
         for i, instr in enumerate(code):
             if instr.operation == 'LABEL':
                 labels[instr.arg1] = i
-    
-    # Find all GOTO targets
-    for i, instr in enumerate(code):
-        if instr.operation == 'GOTO':
-            if instr.arg1 not in goto_targets:
-                goto_targets[instr.arg1] = []
-            goto_targets[instr.arg1].append(i)
-    
-    # Find loops by looking for backward jumps
-    for label, label_pos in labels.items():
-        if label in goto_targets:
-            for goto_pos in goto_targets[label]:
-                if goto_pos > label_pos:  # Forward jump, not a loop
-                    continue
+
+        # Find all GOTO targets
+        for i, instr in enumerate(code):
+            if instr.operation == 'GOTO':
+                if instr.arg1 not in goto_targets:
+                    goto_targets[instr.arg1] = []
+                goto_targets[instr.arg1].append(i)
+
+        # Find loops by looking for backward jumps
+        for label, label_pos in labels.items():
+            if label in goto_targets:
+                for goto_pos in goto_targets[label]:
+                    if goto_pos > label_pos:  # Forward jump, not a loop
+                        continue
+                        
+                    # This is a backward jump - find the loop condition
+                    condition_pos = -1
+                    for j in range(label_pos, goto_pos + 1):
+                        if code[j].operation == 'IF_FALSE':
+                            condition_pos = j
+                            break
                     
-                # This is a backward jump - find the loop condition
-                condition_pos = -1
-                for j in range(label_pos, goto_pos + 1):
-                    if code[j].operation == 'IF_FALSE':
-                        condition_pos = j
-                        break
-                
-                if condition_pos != -1:
-                    loops.append({
-                        'start': label_pos,
-                        'end': goto_pos,
-                        'condition': condition_pos,
-                        'label': label,
-                        'modified_vars': set(),
-                        'invariant_candidates': []
-                    })
-    
-    # Sort loops by start position (helps with nested loops)
-    loops.sort(key=lambda x: x['start'])
-    
-    # Identify nested loops
-    for i, loop in enumerate(loops):
-        loop['parent'] = None
-        loop['children'] = []
+                    if condition_pos != -1:
+                        loops.append({
+                            'start': label_pos,
+                            'end': goto_pos,
+                            'condition': condition_pos,
+                            'label': label,
+                            'modified_vars': set(),
+                            'invariant_candidates': []
+                        })
+
+        # Sort loops by start position (helps with nested loops)
+        loops.sort(key=lambda x: x['start'])
         
-        for j, other_loop in enumerate(loops):
-            if i != j:
-                if loop['start'] < other_loop['start'] and loop['end'] > other_loop['end']:
-                    # loop contains other_loop
-                    other_loop['parent'] = i
-                    loop['children'].append(j)
-    
-    # For each loop, find variables modified inside it
-    for loop in loops:
-        for i in range(loop['start'], loop['end'] + 1):
-            instr = code[i]
-            if instr.result and instr.operation not in ['LABEL', 'GOTO', 'IF_FALSE']:
-                loop['modified_vars'].add(instr.result)
-    
-    return loops
+        # Identify nested loops
+        for i, loop in enumerate(loops):
+            loop['parent'] = None
+            loop['children'] = []
+            
+            for j, other_loop in enumerate(loops):
+                if i != j:
+                    if loop['start'] < other_loop['start'] and loop['end'] > other_loop['end']:
+                        # loop contains other_loop
+                        other_loop['parent'] = i
+                        loop['children'].append(j)
+
+        # For each loop, find variables modified inside it
+        for loop in loops:
+            for i in range(loop['start'], loop['end'] + 1):
+                instr = code[i]
+                if instr.result and instr.operation not in ['LABEL', 'GOTO', 'IF_FALSE']:
+                    loop['modified_vars'].add(instr.result)
+
+        return loops
     
     def find_loop_invariants(self, code: List[ThreeAddressCode], loops: List[Dict[str, Any]]) -> None:
         """Find loop invariant code with better detection"""
@@ -645,6 +645,7 @@ class RLOptimizer:
         
             if not improved:
                 break
+        
             iteration += 1
     
         # Decay epsilon for less exploration over time
