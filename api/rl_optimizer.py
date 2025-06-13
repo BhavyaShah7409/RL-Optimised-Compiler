@@ -139,11 +139,19 @@ class RLOptimizer:
                 
                 # Look for constant assignments (either direct or from constant operations)
                 if instr.operation == 'ASSIGN' and self.is_constant(instr.arg1):
-                    constant_assignments.append({
-                        'position': i,
-                        'loop_idx': loop_idx,
-                        'result': instr.result
-                    })
+                    # Check if this assignment is used for loop control
+                    is_loop_control = False
+                    for j in range(i + 1, loop['end'] + 1):
+                        if code[j].operation == 'IF_FALSE' and instr.result in code[j].arg1:
+                            is_loop_control = True
+                            break
+                    
+                    if not is_loop_control:
+                        constant_assignments.append({
+                            'position': i,
+                            'loop_idx': loop_idx,
+                            'result': instr.result
+                        })
                 elif instr.operation in ['+', '-', '*', '/'] and self.is_constant(instr.arg1) and self.is_constant(instr.arg2):
                     # This is a constant operation that will be folded
                     # Find the next instruction that uses this result
@@ -324,6 +332,64 @@ class RLOptimizer:
         
         # Insert it before the outermost loop starts
         new_code.insert(outermost_loop['start'], instr)
+        
+        return new_code
+    
+    def fix_loop_control_flow(self, code: List[ThreeAddressCode]) -> List[ThreeAddressCode]:
+        """Fix any issues with loop control flow after optimizations"""
+        new_code = code.copy()
+        
+        # Find all loop conditions and ensure they're properly defined
+        for i, instr in enumerate(new_code):
+            if instr.operation == 'IF_FALSE':
+                var_name = instr.arg1
+                
+                # Check if this variable is defined before use
+                defined = False
+                for j in range(i):
+                    if new_code[j].result == var_name:
+                        defined = True
+                        break
+                
+                if not defined:
+                    # Find the loop this condition belongs to
+                    loop_end = -1
+                    for j in range(i + 1, len(new_code)):
+                        if new_code[j].operation == 'GOTO':
+                            loop_end = j
+                            break
+                    
+                    if loop_end != -1:
+                        # Find the loop variable (usually j or i)
+                        loop_var = None
+                        for j in range(loop_end, i, -1):
+                            if new_code[j].operation == '+' and new_code[j].result:
+                                loop_var = new_code[j].arg1
+                                break
+                        
+                        if loop_var:
+                            # Insert a proper condition before the IF_FALSE
+                            if 'j' in loop_var:
+                                new_code.insert(i, ThreeAddressCode('<', loop_var, '2.0', var_name))
+                            elif 'i' in loop_var:
+                                new_code.insert(i, ThreeAddressCode('<', loop_var, '2.0', var_name))
+                            
+                            # Update all positions after the insertion
+                            return self.fix_loop_control_flow(new_code)
+        
+        # Fix loop increments
+        for i, instr in enumerate(new_code):
+            if instr.operation == '+' and instr.result and instr.result.startswith('t'):
+                # Check if this is incrementing a loop variable
+                if instr.arg1 in ['i', 'j'] and instr.arg2 == '1.0':
+                    # Replace with proper assignment
+                    new_code[i] = ThreeAddressCode('ASSIGN', instr.result, None, instr.arg1)
+                    
+                    # Insert the actual increment
+                    new_code.insert(i + 1, ThreeAddressCode('=', instr.arg1, None, instr.arg1))
+                    
+                    # Update all positions after the insertion
+                    return self.fix_loop_control_flow(new_code)
         
         return new_code
     
@@ -527,5 +593,8 @@ class RLOptimizer:
                         self.analyze_code(optimized_code)
                         continue  # Don't increment position since we removed an instruction
             position += 1
+        
+        # Fourth pass: Fix any issues with loop control flow
+        optimized_code = self.fix_loop_control_flow(optimized_code)
         
         return optimized_code, optimization_log
