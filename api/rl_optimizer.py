@@ -1,794 +1,600 @@
-import json
+import random
 import numpy as np
 from typing import List, Dict, Tuple, Any, Set, Optional
 from dataclasses import dataclass
 from .intermediate_code import ThreeAddressCode
-import pickle
-import os
 
 @dataclass
-class GraphNode:
-    """Represents a node in the code graph"""
-    id: int
-    node_type: str  # 'operation', 'variable', 'constant', 'control'
-    value: str
-    features: List[float]
-    neighbors: List[int]
-    metadata: Dict[str, Any]
-
-@dataclass
-class CodeGraph:
-    """Represents the code as a graph structure"""
-    nodes: List[GraphNode]
-    edges: List[Tuple[int, int, str]]  # (source, target, edge_type)
-    node_features: np.ndarray
-    edge_features: np.ndarray
-    adjacency_matrix: np.ndarray
-
-@dataclass
-class OptimizationPrediction:
-    """Represents a predicted optimization"""
-    optimization_type: str
-    confidence: float
-    target_nodes: List[int]
-    parameters: Dict[str, Any]
-    expected_benefit: float
-
-class GNNOptimizer:
-    """Graph Neural Network-based code optimizer"""
+class OptimizationAction:
+    type: str  # 'constant_folding', 'dead_code_elimination', 'common_subexpression', 'loop_invariant'
+    position: int
+    confidence: float = 0.0
+    loop_info: Dict[str, Any] = None
     
-    def __init__(self, model_path: str = "gnn_model.pkl"):
-        self.model_path = model_path
-        self.model = None
-        self.feature_dim = 16
-        self.optimization_types = [
-            'constant_folding',
-            'dead_code_elimination', 
-            'common_subexpression_elimination',
-            'strength_reduction',
-            'loop_unrolling',
-            'instruction_scheduling',
-            'function_inlining',
-            'loop_invariant_motion'
-        ]
-        self.load_model()
+    def __init__(self, type: str, position: int, confidence: float = 0.0, loop_info: Dict[str, Any] = None):
+        self.type = type
+        self.position = position
+        self.confidence = confidence
+        self.loop_info = loop_info or {}
+    
+    def __str__(self) -> str:
+        return f"{self.type} at position {self.position} (confidence: {self.confidence:.2f})"
+
+class RLOptimizer:
+    def __init__(self):
+        self.q_table: Dict[str, Dict[str, float]] = {}
+        self.learning_rate = 0.1
+        self.discount_factor = 0.9
+        self.epsilon = 0.1  # exploration rate
+        self.optimization_history: List[Tuple[str, float]] = []
+        self.variable_usage: Dict[str, Set[int]] = {}  # Track variable usage
+        self.variable_defs: Dict[str, Set[int]] = {}   # Track variable definitions
+    
+    def get_state_key(self, code: List[ThreeAddressCode], position: int) -> str:
+        """Generate a state key based on the current code context"""
+        if position >= len(code):
+            return "END"
         
-    def load_model(self):
-        """Load pre-trained GNN model from local file"""
-        try:
-            if os.path.exists(self.model_path):
-                with open(self.model_path, 'rb') as f:
-                    self.model = pickle.load(f)
-            else:
-                # Create a mock model for demonstration
-                self.model = self._create_mock_model()
-                self._save_mock_model()
-        except Exception as e:
-            print(f"Warning: Could not load GNN model: {e}")
-            self.model = self._create_mock_model()
-    
-    def _create_mock_model(self):
-        """Create a mock GNN model for demonstration purposes"""
-        return {
-            'weights': {
-                'node_embedding': np.random.randn(self.feature_dim, 32),
-                'gnn_layer1': np.random.randn(32, 64),
-                'gnn_layer2': np.random.randn(64, 32),
-                'output_layer': np.random.randn(32, len(self.optimization_types))
-            },
-            'biases': {
-                'gnn_layer1': np.random.randn(64),
-                'gnn_layer2': np.random.randn(32),
-                'output_layer': np.random.randn(len(self.optimization_types))
-            },
-            'version': '1.0'
-        }
-    
-    def _save_mock_model(self):
-        """Save the mock model to file"""
-        try:
-            with open(self.model_path, 'wb') as f:
-                pickle.dump(self.model, f)
-        except Exception as e:
-            print(f"Warning: Could not save mock model: {e}")
-    
-    def build_code_graph(self, intermediate_code: List[ThreeAddressCode]) -> CodeGraph:
-        """Convert intermediate code to graph representation"""
-        nodes = []
-        edges = []
-        node_id = 0
-        variable_nodes = {}
+        current = code[position]
+        context = []
         
-        # Create nodes for each instruction
-        for i, instr in enumerate(intermediate_code):
-            # Create operation node
-            op_features = self._extract_operation_features(instr)
-            op_node = GraphNode(
-                id=node_id,
-                node_type='operation',
-                value=instr.operation,
-                features=op_features,
-                neighbors=[],
-                metadata={'instruction_index': i, 'instruction': instr}
-            )
-            nodes.append(op_node)
-            op_node_id = node_id
-            node_id += 1
+        # Add current instruction type
+        context.append(current.operation)
+        
+        # Add context from previous and next instructions
+        if position > 0:
+            context.append(f"prev_{code[position-1].operation}")
+        if position < len(code) - 1:
+            context.append(f"next_{code[position+1].operation}")
+        
+        return "_".join(context)
+    
+    def analyze_code(self, code: List[ThreeAddressCode]) -> None:
+        """Analyze code for variable usage and definitions"""
+        self.variable_usage = {}
+        self.variable_defs = {}
+        
+        # Collect all variable definitions and usages
+        for i, instr in enumerate(code):
+            # Track definitions (where variables are assigned values)
+            if instr.result and instr.operation not in ['LABEL', 'GOTO', 'IF_FALSE', 'PRINT']:
+                if instr.result not in self.variable_defs:
+                    self.variable_defs[instr.result] = set()
+                self.variable_defs[instr.result].add(i)
+                
+                if instr.result not in self.variable_usage:
+                    self.variable_usage[instr.result] = set()
             
-            # Create variable/constant nodes and edges
-            for arg in [instr.arg1, instr.arg2, instr.result]:
-                if arg is not None:
-                    if self._is_constant(arg):
-                        # Create constant node
-                        const_features = self._extract_constant_features(arg)
-                        const_node = GraphNode(
-                            id=node_id,
-                            node_type='constant',
-                            value=arg,
-                            features=const_features,
-                            neighbors=[],
-                            metadata={'value': arg}
-                        )
-                        nodes.append(const_node)
-                        edges.append((const_node.id, op_node_id, 'uses'))
-                        node_id += 1
-                    else:
-                        # Handle variable
-                        if arg not in variable_nodes:
-                            var_features = self._extract_variable_features(arg)
-                            var_node = GraphNode(
-                                id=node_id,
-                                node_type='variable',
-                                value=arg,
-                                features=var_features,
-                                neighbors=[],
-                                metadata={'name': arg}
-                            )
-                            nodes.append(var_node)
-                            variable_nodes[arg] = var_node.id
-                            node_id += 1
-                        
-                        var_node_id = variable_nodes[arg]
-                        if arg == instr.result:
-                            edges.append((op_node_id, var_node_id, 'defines'))
-                        else:
-                            edges.append((var_node_id, op_node_id, 'uses'))
-        
-        # Add control flow edges
-        self._add_control_flow_edges(nodes, edges, intermediate_code)
-        
-        # Build adjacency matrix and feature matrices
-        num_nodes = len(nodes)
-        adjacency_matrix = np.zeros((num_nodes, num_nodes))
-        node_features = np.zeros((num_nodes, self.feature_dim))
-        
-        for i, node in enumerate(nodes):
-            node_features[i] = node.features[:self.feature_dim]
-        
-        for source, target, edge_type in edges:
-            adjacency_matrix[source][target] = 1
-            # Update neighbor lists
-            nodes[source].neighbors.append(target)
-        
-        edge_features = self._extract_edge_features(edges)
-        
-        return CodeGraph(
-            nodes=nodes,
-            edges=edges,
-            node_features=node_features,
-            edge_features=edge_features,
-            adjacency_matrix=adjacency_matrix
-        )
+            # Track usages (where variables are read)
+            for arg in [instr.arg1, instr.arg2]:
+                if arg and isinstance(arg, str) and not self.is_constant(arg):
+                    if arg not in self.variable_usage:
+                        self.variable_usage[arg] = set()
+                    self.variable_usage[arg].add(i)
     
-    def _extract_operation_features(self, instr: ThreeAddressCode) -> List[float]:
-        """Extract features for operation nodes"""
-        features = [0.0] * self.feature_dim
-        
-        # Operation type encoding
-        op_types = {
-            'ASSIGN': 0, 'PRINT': 1, 'SCAN': 2, 'LABEL': 3, 'GOTO': 4,
-            'IF_FALSE': 5, '+': 6, '-': 7, '*': 8, '/': 9,
-            '>': 10, '<': 11, '>=': 12, '<=': 13, '==': 14, '!=': 15
-        }
-        
-        if instr.operation in op_types:
-            features[0] = op_types[instr.operation] / len(op_types)
-        
-        # Arity (number of operands)
-        arity = sum(1 for arg in [instr.arg1, instr.arg2] if arg is not None)
-        features[1] = arity / 2.0
-        
-        # Has result
-        features[2] = 1.0 if instr.result else 0.0
-        
-        # Computational complexity estimate
-        complexity_map = {'+': 1, '-': 1, '*': 2, '/': 3, '==': 1, '!=': 1}
-        features[3] = complexity_map.get(instr.operation, 0) / 3.0
-        
-        return features
-    
-    def _extract_variable_features(self, var_name: str) -> List[float]:
-        """Extract features for variable nodes"""
-        features = [0.0] * self.feature_dim
-        features[0] = 0.5  # Variable type indicator
-        features[1] = len(var_name) / 10.0  # Name length normalized
-        features[2] = 1.0 if var_name.startswith('t') else 0.0  # Temporary variable
-        return features
-    
-    def _extract_constant_features(self, const_value: str) -> List[float]:
-        """Extract features for constant nodes"""
-        features = [0.0] * self.feature_dim
-        features[0] = 1.0  # Constant type indicator
-        
-        try:
-            val = float(const_value.strip('"'))
-            features[1] = min(abs(val) / 100.0, 1.0)  # Magnitude
-            features[2] = 1.0 if val == int(val) else 0.0  # Is integer
-        except:
-            features[1] = len(const_value) / 20.0  # String length
-            features[2] = 0.0
-        
-        return features
-    
-    def _add_control_flow_edges(self, nodes: List[GraphNode], edges: List[Tuple[int, int, str]], 
-                               intermediate_code: List[ThreeAddressCode]):
-        """Add control flow edges to the graph"""
-        # Find labels and their positions
+    def find_loops(self, code: List[ThreeAddressCode]) -> List[Dict[str, Any]]:
+        """Find loops in the code - simplified version"""
+        loops = []
         labels = {}
-        for i, instr in enumerate(intermediate_code):
+        
+        # Find all labels
+        for i, instr in enumerate(code):
             if instr.operation == 'LABEL':
                 labels[instr.arg1] = i
         
-        # Add control flow edges
-        for i, instr in enumerate(intermediate_code):
-            if instr.operation == 'GOTO':
-                target_pos = labels.get(instr.arg1)
-                if target_pos is not None:
-                    edges.append((i, target_pos, 'control_flow'))
-            elif instr.operation == 'IF_FALSE':
-                target_pos = labels.get(instr.arg2)
-                if target_pos is not None:
-                    edges.append((i, target_pos, 'conditional_flow'))
-                # Also add fall-through edge
-                if i + 1 < len(intermediate_code):
-                    edges.append((i, i + 1, 'fall_through'))
-    
-    def _extract_edge_features(self, edges: List[Tuple[int, int, str]]) -> np.ndarray:
-        """Extract features for edges"""
-        edge_types = {'uses': 0, 'defines': 1, 'control_flow': 2, 'conditional_flow': 3, 'fall_through': 4}
-        edge_features = np.zeros((len(edges), 4))
+        # Find loops by looking for backward jumps
+        for i, instr in enumerate(code):
+            if instr.operation == 'GOTO' and instr.arg1 in labels:
+                target = labels[instr.arg1]
+                if target < i:  # Backward jump = loop
+                    # Find the condition (IF_FALSE) that exits the loop
+                    condition_pos = -1
+                    for j in range(target, i):
+                        if code[j].operation == 'IF_FALSE':
+                            condition_pos = j
+                            break
+                    
+                    if condition_pos != -1:
+                        loops.append({
+                            'start': target,
+                            'end': i,
+                            'condition': condition_pos,
+                            'label': instr.arg1,
+                            'modified_vars': set(),
+                            'invariant_candidates': []
+                        })
         
-        for i, (source, target, edge_type) in enumerate(edges):
-            if edge_type in edge_types:
-                edge_features[i][edge_types[edge_type]] = 1.0
+        # Sort loops by start position (helps with nested loops)
+        loops.sort(key=lambda x: x['start'])
         
-        return edge_features
+        # Identify nested loops
+        for i, loop in enumerate(loops):
+            loop['parent'] = None
+            loop['children'] = []
+            
+            for j, other_loop in enumerate(loops):
+                if i != j:
+                    if loop['start'] < other_loop['start'] and loop['end'] > other_loop['end']:
+                        # loop contains other_loop
+                        other_loop['parent'] = i
+                        loop['children'].append(j)
+        
+        # For each loop, find variables modified inside it
+        for loop in loops:
+            for i in range(loop['start'], loop['end'] + 1):
+                instr = code[i]
+                if instr.result and instr.operation not in ['LABEL', 'GOTO', 'IF_FALSE']:
+                    loop['modified_vars'].add(instr.result)
+        
+        return loops
     
-    def _is_constant(self, value: str) -> bool:
+    def find_constant_assignments(self, code: List[ThreeAddressCode], loops: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Find constant assignments inside loops that can be moved out"""
+        constant_assignments = []
+        
+        for loop_idx, loop in enumerate(loops):
+            # Check each instruction in the loop
+            for i in range(loop['start'] + 1, loop['end']):
+                instr = code[i]
+                
+                # Look for constant assignments (either direct or from constant operations)
+                if instr.operation == 'ASSIGN' and self.is_constant(instr.arg1):
+                    # Check if this assignment is used for loop control
+                    is_loop_control = False
+                    for j in range(i + 1, loop['end'] + 1):
+                        if code[j].operation == 'IF_FALSE' and instr.result in code[j].arg1:
+                            is_loop_control = True
+                            break
+                    
+                    if not is_loop_control:
+                        constant_assignments.append({
+                            'position': i,
+                            'loop_idx': loop_idx,
+                            'result': instr.result
+                        })
+                elif instr.operation in ['+', '-', '*', '/'] and self.is_constant(instr.arg1) and self.is_constant(instr.arg2):
+                    # This is a constant operation that will be folded
+                    # Find the next instruction that uses this result
+                    for j in range(i + 1, loop['end']):
+                        next_instr = code[j]
+                        if next_instr.operation == 'ASSIGN' and next_instr.arg1 == instr.result:
+                            constant_assignments.append({
+                                'position': j,
+                                'loop_idx': loop_idx,
+                                'result': next_instr.result
+                            })
+                            break
+        
+        return constant_assignments
+    
+    def is_constant(self, value: str) -> bool:
         """Check if a value is a constant"""
         if not isinstance(value, str):
             return False
+            
+        # Check if it's a numeric constant
         try:
             float(value)
             return True
-        except ValueError:
+        except (ValueError, TypeError):
+            # Check if it's a string constant
             return value.startswith('"') and value.endswith('"')
     
-    def gnn_inference(self, graph: CodeGraph) -> List[OptimizationPrediction]:
-        """Perform GNN inference to predict optimizations"""
-        if self.model is None:
-            return []
-        
+    def try_parse_float(self, value: str) -> Optional[float]:
+        """Safely try to parse a string as float"""
+        if not isinstance(value, str):
+            return None
+            
         try:
-            # Simulate GNN forward pass
-            node_embeddings = self._forward_pass(graph)
-            
-            # Predict optimizations
-            predictions = self._predict_optimizations(graph, node_embeddings)
-            
-            return predictions
-        except Exception as e:
-            print(f"Warning: GNN inference failed: {e}")
-            return []
+            return float(value)
+        except (ValueError, TypeError):
+            return None
     
-    def _forward_pass(self, graph: CodeGraph) -> np.ndarray:
-        """Simulate GNN forward pass"""
-        # Initial node embeddings
-        h = np.dot(graph.node_features, self.model['weights']['node_embedding'])
-        
-        # GNN layers with message passing
-        for layer in ['gnn_layer1', 'gnn_layer2']:
-            # Message passing: aggregate neighbor features
-            messages = np.zeros_like(h)
-            for i, node in enumerate(graph.nodes):
-                neighbor_features = []
-                for neighbor_id in node.neighbors:
-                    if neighbor_id < len(h):
-                        neighbor_features.append(h[neighbor_id])
-                
-                if neighbor_features:
-                    messages[i] = np.mean(neighbor_features, axis=0)
+    def is_variable_used_later(self, code: List[ThreeAddressCode], position: int, variable: str) -> bool:
+        """Check if a variable is used after the current position"""
+        if variable not in self.variable_usage:
+            return False
             
-            # Update node representations
-            combined = h + messages
-            h = np.tanh(np.dot(combined, self.model['weights'][layer]) + self.model['biases'][layer])
-        
-        return h
+        # Check if there are any usages after the current position
+        for usage_pos in self.variable_usage[variable]:
+            if usage_pos > position:
+                return True
+                
+        return False
     
-    def _predict_optimizations(self, graph: CodeGraph, embeddings: np.ndarray) -> List[OptimizationPrediction]:
-        """Predict optimizations from node embeddings"""
-        predictions = []
-        
-        # Global graph representation (mean pooling)
-        graph_embedding = np.mean(embeddings, axis=0)
-        
-        # Predict optimization scores
-        scores = np.dot(graph_embedding, self.model['weights']['output_layer']) + self.model['biases']['output_layer']
-        scores = 1 / (1 + np.exp(-scores))  # Sigmoid activation
-        
-        # Generate predictions for high-scoring optimizations
-        for i, score in enumerate(scores):
-            if score > 0.5:  # Threshold for applying optimization
-                opt_type = self.optimization_types[i]
-                target_nodes = self._find_optimization_targets(graph, opt_type, embeddings)
-                
-                prediction = OptimizationPrediction(
-                    optimization_type=opt_type,
-                    confidence=float(score),
-                    target_nodes=target_nodes,
-                    parameters=self._get_optimization_parameters(opt_type),
-                    expected_benefit=float(score * 10)  # Estimated benefit
-                )
-                predictions.append(prediction)
-        
-        return sorted(predictions, key=lambda x: x.confidence, reverse=True)
-    
-    def _find_optimization_targets(self, graph: CodeGraph, opt_type: str, embeddings: np.ndarray) -> List[int]:
-        """Find target nodes for specific optimization"""
-        targets = []
-        
-        if opt_type == 'constant_folding':
-            # Find arithmetic operations with constant operands
-            for i, node in enumerate(graph.nodes):
-                if node.node_type == 'operation' and node.value in ['+', '-', '*', '/']:
-                    targets.append(i)
-        
-        elif opt_type == 'dead_code_elimination':
-            # Find operations that don't affect output
-            for i, node in enumerate(graph.nodes):
-                if node.node_type == 'operation' and node.value not in ['PRINT', 'SCAN']:
-                    # Simple heuristic: operations with low connectivity
-                    if len(node.neighbors) < 2:
-                        targets.append(i)
-        
-        elif opt_type == 'common_subexpression_elimination':
-            # Find repeated operations
-            operation_patterns = {}
-            for i, node in enumerate(graph.nodes):
-                if node.node_type == 'operation':
-                    pattern = node.value
-                    if pattern in operation_patterns:
-                        targets.extend([operation_patterns[pattern], i])
-                    else:
-                        operation_patterns[pattern] = i
-        
-        return targets[:5]  # Limit to top 5 targets
-    
-    def _get_optimization_parameters(self, opt_type: str) -> Dict[str, Any]:
-        """Get parameters for specific optimization"""
-        params = {
-            'constant_folding': {'aggressive': True},
-            'dead_code_elimination': {'preserve_side_effects': True},
-            'common_subexpression_elimination': {'scope': 'local'},
-            'strength_reduction': {'target_operations': ['*', '/']},
-            'loop_unrolling': {'max_iterations': 4},
-            'instruction_scheduling': {'window_size': 8},
-            'function_inlining': {'size_threshold': 50},
-            'loop_invariant_motion': {'safety_check': True}
-        }
-        return params.get(opt_type, {})
-    
-    def apply_optimizations(self, intermediate_code: List[ThreeAddressCode], 
-                          predictions: List[OptimizationPrediction]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Apply predicted optimizations to intermediate code"""
-        optimized_code = intermediate_code.copy()
-        optimization_log = []
-        
-        # Sort predictions by confidence and expected benefit
-        sorted_predictions = sorted(predictions, key=lambda x: (x.confidence, x.expected_benefit), reverse=True)
-        
-        for prediction in sorted_predictions:
-            if prediction.confidence > 0.5:  # Apply medium+ confidence optimizations
-                try:
-                    original_length = len(optimized_code)
-                    
-                    if prediction.optimization_type == 'constant_folding':
-                        optimized_code, log = self._apply_constant_folding(optimized_code)
-                        optimization_log.extend(log)
-                    
-                    elif prediction.optimization_type == 'dead_code_elimination':
-                        optimized_code, log = self._apply_dead_code_elimination(optimized_code)
-                        optimization_log.extend(log)
-                    
-                    elif prediction.optimization_type == 'common_subexpression_elimination':
-                        optimized_code, log = self._apply_cse(optimized_code)
-                        optimization_log.extend(log)
-                    
-                    elif prediction.optimization_type == 'strength_reduction':
-                        optimized_code, log = self._apply_strength_reduction(optimized_code)
-                        optimization_log.extend(log)
-                    
-                    elif prediction.optimization_type == 'loop_unrolling':
-                        optimized_code, log = self._apply_loop_unrolling(optimized_code)
-                        optimization_log.extend(log)
-                    
-                    elif prediction.optimization_type == 'loop_invariant_motion':
-                        optimized_code, log = self._apply_loop_invariant_motion(optimized_code)
-                        optimization_log.extend(log)
-                    
-                    elif prediction.optimization_type == 'function_inlining':
-                        optimized_code, log = self._apply_function_inlining(optimized_code)
-                        optimization_log.extend(log)
-                    
-                    elif prediction.optimization_type == 'instruction_scheduling':
-                        optimized_code, log = self._apply_instruction_scheduling(optimized_code)
-                        optimization_log.extend(log)
-                    
-                    # Log the optimization result
-                    new_length = len(optimized_code)
-                    if new_length != original_length:
-                        optimization_log.append(f"GNN: {prediction.optimization_type} reduced code from {original_length} to {new_length} instructions")
-                    
-                except Exception as e:
-                    optimization_log.append(f"Failed to apply {prediction.optimization_type}: {str(e)}")
-    
-    return optimized_code, optimization_log
-    
-    def _apply_loop_unrolling(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Apply loop unrolling optimization"""
-        optimized_code = []
-        log = []
-        
-        # Find simple loops that can be unrolled
-        i = 0
-        while i < len(code):
-            instr = code[i]
-            
-            # Look for simple counting loops
-            if (instr.operation == 'ASSIGN' and 
-                i + 4 < len(code) and 
-                code[i + 1].operation == 'LABEL' and
-                code[i + 3].operation == 'IF_FALSE'):
-                
-                # Check if it's a simple increment loop
-                loop_var = instr.result
-                increment_found = False
-                
-                # Look for increment in loop body
-                for j in range(i + 2, min(i + 10, len(code))):
-                    if (code[j].operation == '+' and 
-                        code[j].arg1 == loop_var and 
-                        self._is_constant(code[j].arg2)):
-                        increment_found = True
-                        break
-                
-                if increment_found:
-                    # Simple unroll: duplicate loop body 2 times
-                    optimized_code.append(instr)  # Initial assignment
-                    
-                    # First iteration
-                    for j in range(i + 2, min(i + 6, len(code))):
-                        if code[j].operation not in ['LABEL', 'GOTO', 'IF_FALSE']:
-                            optimized_code.append(code[j])
-                    
-                    # Second iteration (if safe)
-                    for j in range(i + 2, min(i + 6, len(code))):
-                        if code[j].operation not in ['LABEL', 'GOTO', 'IF_FALSE']:
-                            optimized_code.append(code[j])
-                    
-                    log.append(f"GNN-guided loop unrolling: unrolled loop with variable {loop_var}")
-                    i = min(i + 8, len(code))  # Skip processed instructions
-                    continue
-            
-            optimized_code.append(instr)
-            i += 1
-        
-        return optimized_code, log
-
-    def _apply_loop_invariant_motion(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Apply loop invariant code motion"""
-        optimized_code = []
-        log = []
-        
-        # Find loops and invariant code
-        i = 0
-        while i < len(code):
-            instr = code[i]
-            
-            # Look for loop structures
-            if instr.operation == 'LABEL':
-                loop_end = -1
-                # Find corresponding loop end
-                for j in range(i + 1, len(code)):
-                    if code[j].operation == 'GOTO' and code[j].arg1 == instr.arg1:
-                        loop_end = j
-                        break
-            
-            if loop_end > i:
-                # Analyze loop body for invariant code
-                invariant_code = []
-                loop_body = []
-                
-                for j in range(i + 1, loop_end):
-                    loop_instr = code[j]
-                    
-                    # Check if instruction is loop invariant
-                    if (loop_instr.operation in ['+', '-', '*', '/'] and
-                        self._is_constant(loop_instr.arg1) and 
-                        self._is_constant(loop_instr.arg2)):
-                        invariant_code.append(loop_instr)
-                        log.append(f"GNN-guided loop invariant motion: moved {loop_instr} outside loop")
-                    else:
-                        loop_body.append(loop_instr)
-                
-                # Emit invariant code before loop
-                optimized_code.extend(invariant_code)
-                
-                # Emit loop structure
-                optimized_code.append(instr)  # LABEL
-                optimized_code.extend(loop_body)
-                optimized_code.append(code[loop_end])  # GOTO
-                
-                i = loop_end + 1
-                continue
-            
-            optimized_code.append(instr)
-            i += 1
-        
-        return optimized_code, log
-
-    def _apply_function_inlining(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Apply function inlining optimization"""
-        # For this simple language, we'll inline simple assignment sequences
-        optimized_code = []
-        log = []
-        
-        # Look for assignment chains that can be inlined
-        i = 0
-        while i < len(code):
-            instr = code[i]
-            
-            # Look for simple assignment chains: a = b; c = a; -> c = b;
-            if (instr.operation == 'ASSIGN' and 
-                i + 1 < len(code) and 
-                code[i + 1].operation == 'ASSIGN' and
-                code[i + 1].arg1 == instr.result):
-                
-                # Inline the assignment
-                inlined_instr = ThreeAddressCode('ASSIGN', instr.arg1, None, code[i + 1].result)
-                optimized_code.append(inlined_instr)
-                log.append(f"GNN-guided function inlining: {instr.result} = {instr.arg1}; {code[i + 1].result} = {instr.result}; -> {code[i + 1].result} = {instr.arg1};")
-                i += 2  # Skip both instructions
-                continue
-            
-            optimized_code.append(instr)
-            i += 1
-        
-        return optimized_code, log
-
-    def _apply_instruction_scheduling(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Apply instruction scheduling optimization"""
-        optimized_code = []
-        log = []
-        
-        # Simple scheduling: move independent instructions closer to their use
-        i = 0
-        while i < len(code):
-            instr = code[i]
-            
-            # Look for opportunities to reorder independent instructions
-            if (instr.operation in ['+', '-', '*', '/'] and 
-                i + 2 < len(code) and
-                code[i + 1].operation == 'ASSIGN' and
-                code[i + 2].operation in ['+', '-', '*', '/'] and
-                instr.result != code[i + 2].arg1 and 
-                instr.result != code[i + 2].arg2):
-                
-                # Can reorder these instructions
-                optimized_code.append(instr)
-                optimized_code.append(code[i + 2])  # Move later instruction up
-                optimized_code.append(code[i + 1])  # Move assignment down
-                log.append(f"GNN-guided instruction scheduling: reordered instructions for better pipeline utilization")
-                i += 3
-                continue
-            
-            optimized_code.append(instr)
-            i += 1
-        
-        return optimized_code, log
-    
-    def _apply_constant_folding(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
+    def apply_constant_folding(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
         """Apply constant folding optimization"""
-        optimized_code = []
-        log = []
-        changed = True
-        current_code = code.copy()
+        if position >= len(code):
+            return code
         
-        # Multiple passes until no more changes
-        while changed:
-            changed = False
-            temp_code = []
-            
-            for instr in current_code:
-                if instr.operation in ['+', '-', '*', '/'] and self._is_constant(instr.arg1) and self._is_constant(instr.arg2):
-                    try:
-                        val1 = float(instr.arg1)
-                        val2 = float(instr.arg2)
-                        
-                        if instr.operation == '+':
-                            result = val1 + val2
-                        elif instr.operation == '-':
-                            result = val1 - val2
-                        elif instr.operation == '*':
-                            result = val1 * val2
-                        elif instr.operation == '/':
-                            if val2 != 0:
-                                result = val1 / val2
-                            else:
-                                temp_code.append(instr)
-                                continue
-                        
-                        # Create new assignment instruction
-                        result_str = str(int(result)) if result == int(result) else str(result)
-                        new_instr = ThreeAddressCode('ASSIGN', result_str, None, instr.result)
-                        temp_code.append(new_instr)
-                        log.append(f"GNN-guided constant folding: {instr.arg1} {instr.operation} {instr.arg2} = {result_str}")
-                        changed = True
-                        
-                    except Exception:
-                        temp_code.append(instr)
-                else:
-                    temp_code.append(instr)
-        
-        current_code = temp_code
-    
-    return current_code, log
-    
-    def _apply_dead_code_elimination(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Apply dead code elimination"""
-        # Build use-def chains
-        used_vars = set()
-        definitions = {}
-        
-        # Find all used variables
-        for instr in code:
-            if instr.operation in ['PRINT', 'SCAN', 'IF_FALSE']:
-                if instr.arg1:
-                    used_vars.add(instr.arg1)
-                if instr.arg2:
-                    used_vars.add(instr.arg2)
-            
-            for arg in [instr.arg1, instr.arg2]:
-                if arg and not self._is_constant(arg):
-                    used_vars.add(arg)
-        
-        # Mark definitions of used variables
-        live_vars = used_vars.copy()
-        changed = True
-        while changed:
-            changed = False
-            for instr in code:
-                if instr.result and instr.result in live_vars:
-                    for arg in [instr.arg1, instr.arg2]:
-                        if arg and not self._is_constant(arg) and arg not in live_vars:
-                            live_vars.add(arg)
-                            changed = True
-        
-        # Remove dead code
-        optimized_code = []
-        log = []
-        
-        for instr in code:
-            if (instr.operation in ['PRINT', 'SCAN', 'LABEL', 'GOTO', 'IF_FALSE'] or
-                (instr.result and instr.result in live_vars)):
-                optimized_code.append(instr)
-            else:
-                log.append(f"GNN-guided dead code elimination: removed {instr}")
-        
-        return optimized_code, log
-    
-    def _apply_cse(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Apply common subexpression elimination"""
-        optimized_code = []
-        log = []
-        expression_map = {}
-        
-        for instr in code:
-            if instr.operation in ['+', '-', '*', '/']:
-                expr_key = f"{instr.arg1}_{instr.operation}_{instr.arg2}"
+        instr = code[position]
+        if instr.operation in ['+', '-', '*', '/'] and self.is_constant(instr.arg1) and self.is_constant(instr.arg2):
+            try:
+                val1 = float(instr.arg1)
+                val2 = float(instr.arg2)
+                result = None
                 
-                if expr_key in expression_map:
-                    # Replace with assignment from previous result
-                    prev_result = expression_map[expr_key]
-                    new_instr = ThreeAddressCode('ASSIGN', prev_result, None, instr.result)
-                    optimized_code.append(new_instr)
-                    log.append(f"GNN-guided CSE: reused {prev_result} for {expr_key}")
-                else:
-                    expression_map[expr_key] = instr.result
-                    optimized_code.append(instr)
-            else:
-                optimized_code.append(instr)
+                if instr.operation == '+':
+                    result = val1 + val2
+                elif instr.operation == '-':
+                    result = val1 - val2
+                elif instr.operation == '*':
+                    result = val1 * val2
+                elif instr.operation == '/':
+                    if val2 != 0:
+                        result = val1 / val2
+                    else:
+                        return code  # Avoid division by zero
+                
+                if result is not None:
+                    # Format result to avoid unnecessary decimal places
+                    if result == int(result):
+                        result_str = str(int(result))
+                    else:
+                        result_str = str(result)
+                        
+                    new_code = code.copy()
+                    new_code[position] = ThreeAddressCode('ASSIGN', result_str, None, instr.result)
+                    return new_code
+            except Exception as e:
+                # If any error occurs during constant folding, return original code
+                return code
         
-        return optimized_code, log
+        return code
     
-    def _apply_strength_reduction(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Apply strength reduction optimization"""
-        optimized_code = []
-        log = []
+    def apply_dead_code_elimination(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
+        """Remove dead code"""
+        if position >= len(code):
+            return code
         
-        for instr in code:
-            if instr.operation == '*':
-                # Replace multiplication by 2 with addition
-                if (self._is_constant(instr.arg2) and float(instr.arg2) == 2) or \
-                   (self._is_constant(instr.arg1) and float(instr.arg1) == 2):
+        # Don't remove code with side effects
+        instr = code[position]
+        if instr.operation in ['PRINT', 'SCAN', 'LABEL', 'GOTO', 'IF_FALSE']:
+            return code
+            
+        # Don't remove code that defines variables used later
+        if instr.result and self.is_variable_used_later(code, position, instr.result):
+            return code
+            
+        new_code = code.copy()
+        del new_code[position]
+        return new_code
+    
+    def apply_common_subexpression_elimination(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
+        """Eliminate common subexpressions"""
+        if position >= len(code):
+            return code
+        
+        current = code[position]
+        for i in range(position):
+            prev = code[i]
+            if (prev.operation == current.operation and 
+                prev.arg1 == current.arg1 and 
+                prev.arg2 == current.arg2 and
+                prev.result):  # Make sure there's a result to reuse
+                
+                # Check that the previous result hasn't been modified
+                modified = False
+                for j in range(i + 1, position):
+                    if code[j].result == prev.result:
+                        modified = True
+                        break
+                
+                if not modified:
+                    new_code = code.copy()
+                    new_code[position] = ThreeAddressCode('ASSIGN', prev.result, None, current.result)
+                    return new_code
+        
+        return code
+    
+    def apply_strength_reduction(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
+        """Apply strength reduction optimizations"""
+        if position >= len(code):
+            return code
+        
+        instr = code[position]
+        new_code = code.copy()
+        
+        # Replace multiplication by 2 with addition
+        if instr.operation == '*':
+            if self.is_constant(instr.arg2) and self.try_parse_float(instr.arg2) == 2:
+                # x * 2 -> x + x
+                new_code[position] = ThreeAddressCode('+', instr.arg1, instr.arg1, instr.result)
+                return new_code
+            elif self.is_constant(instr.arg1) and self.try_parse_float(instr.arg1) == 2:
+                # 2 * x -> x + x
+                new_code[position] = ThreeAddressCode('+', instr.arg2, instr.arg2, instr.result)
+                return new_code
+        
+        return code
+    
+    def apply_loop_invariant_motion(self, code: List[ThreeAddressCode], position: int, loop_idx: int, loops: List[Dict[str, Any]]) -> List[ThreeAddressCode]:
+        """Move loop-invariant code outside the loop"""
+        if position >= len(code) or loop_idx >= len(loops):
+            return code
+        
+        loop = loops[loop_idx]
+        instr = code[position]
+        
+        # Find the outermost loop that contains this instruction
+        current_loop_idx = loop_idx
+        while loops[current_loop_idx]['parent'] is not None:
+            current_loop_idx = loops[current_loop_idx]['parent']
+        
+        # Use the outermost loop
+        outermost_loop = loops[current_loop_idx]
+        
+        # Create a new code list
+        new_code = code.copy()
+        
+        # Remove the instruction from its current position
+        del new_code[position]
+        
+        # Insert it before the outermost loop starts
+        new_code.insert(outermost_loop['start'], instr)
+        
+        return new_code
+    
+    def fix_loop_control_flow(self, code: List[ThreeAddressCode]) -> List[ThreeAddressCode]:
+        """Fix any issues with loop control flow after optimizations"""
+        new_code = code.copy()
+        
+        # Find all loop conditions and ensure they're properly defined
+        for i, instr in enumerate(new_code):
+            if instr.operation == 'IF_FALSE':
+                var_name = instr.arg1
+                
+                # Check if this variable is defined before use
+                defined = False
+                for j in range(i):
+                    if new_code[j].result == var_name:
+                        defined = True
+                        break
+                
+                if not defined:
+                    # Find the loop this condition belongs to
+                    loop_end = -1
+                    for j in range(i + 1, len(new_code)):
+                        if new_code[j].operation == 'GOTO':
+                            loop_end = j
+                            break
                     
-                    operand = instr.arg1 if self._is_constant(instr.arg2) else instr.arg2
-                    new_instr = ThreeAddressCode('+', operand, operand, instr.result)
-                    optimized_code.append(new_instr)
-                    log.append(f"GNN-guided strength reduction: {operand} * 2 → {operand} + {operand}")
-                else:
-                    optimized_code.append(instr)
-            else:
-                optimized_code.append(instr)
+                    if loop_end != -1:
+                        # Find the loop variable (usually j or i)
+                        loop_var = None
+                        for j in range(loop_end, i, -1):
+                            if new_code[j].operation == '+' and new_code[j].result:
+                                loop_var = new_code[j].arg1
+                                break
+                        
+                        if loop_var:
+                            # Insert a proper condition before the IF_FALSE
+                            if 'j' in loop_var:
+                                new_code.insert(i, ThreeAddressCode('<', loop_var, '2.0', var_name))
+                            elif 'i' in loop_var:
+                                new_code.insert(i, ThreeAddressCode('<', loop_var, '2.0', var_name))
+                            
+                            # Update all positions after the insertion
+                            return self.fix_loop_control_flow(new_code)
         
-        return optimized_code, log
+        # Fix loop increments
+        for i, instr in enumerate(new_code):
+            if instr.operation == '+' and instr.result and instr.result.startswith('t'):
+                # Check if this is incrementing a loop variable
+                if instr.arg1 in ['i', 'j'] and instr.arg2 == '1.0':
+                    # Replace with proper assignment
+                    new_code[i] = ThreeAddressCode('ASSIGN', instr.result, None, instr.arg1)
+                    
+                    # Insert the actual increment
+                    new_code.insert(i + 1, ThreeAddressCode('=', instr.arg1, None, instr.arg1))
+                    
+                    # Update all positions after the insertion
+                    return self.fix_loop_control_flow(new_code)
+        
+        return new_code
+    
+    def calculate_reward(self, original_code: List[ThreeAddressCode], optimized_code: List[ThreeAddressCode]) -> float:
+        """Calculate reward for the optimization"""
+        # Base reward for code size reduction
+        size_reduction = len(original_code) - len(optimized_code)
+        reward = size_reduction * 10
+        
+        # Bonus for specific optimizations
+        for i, instr in enumerate(optimized_code):
+            # Reward for constant folding
+            if instr.operation == 'ASSIGN' and self.is_constant(instr.arg1):
+                reward += 5
+            
+            # Reward for loop optimizations
+            if instr.operation == 'COMMENT' and 'loop' in instr.arg1.lower():
+                reward += 15  # Higher reward for loop optimizations
+        
+        # Penalty for making code worse
+        if len(optimized_code) > len(original_code):
+            reward -= 20
+        
+        return reward
+    
+    def update_q_value(self, state: str, action: OptimizationAction, reward: float, next_state: str) -> None:
+        """Update Q-value using Q-learning algorithm"""
+        if state not in self.q_table:
+            self.q_table[state] = {}
+        
+        action_key = f"{action.type}_{action.position}"
+        current_q = self.q_table[state].get(action_key, 0.0)
+        
+        # Get max Q-value for next state
+        max_next_q = 0.0
+        if next_state in self.q_table and self.q_table[next_state]:
+            max_next_q = max(self.q_table[next_state].values())
+        
+        # Q-learning update
+        new_q = current_q + self.learning_rate * (reward + self.discount_factor * max_next_q - current_q)
+        self.q_table[state][action_key] = new_q
+        
+        # Update action confidence based on Q-value
+        action.confidence = new_q
+    
+    def get_possible_actions(self, code: List[ThreeAddressCode], position: int, loops: List[Dict[str, Any]]) -> List[OptimizationAction]:
+        """Get possible optimization actions for the current position"""
+        actions = []
+        
+        if position >= len(code):
+            return actions
+        
+        current = code[position]
+        
+        # Constant folding opportunities
+        if current.operation in ['+', '-', '*', '/'] and current.arg1 and current.arg2:
+            if self.is_constant(current.arg1) and self.is_constant(current.arg2):
+                actions.append(OptimizationAction('constant_folding', position, 0.8))
+        
+        # Dead code elimination
+        if current.result and not self.is_variable_used_later(code, position, current.result):
+            # Don't eliminate code with side effects like PRINT
+            if current.operation not in ['PRINT', 'SCAN']:
+                actions.append(OptimizationAction('dead_code_elimination', position, 0.7))
+        
+        # Common subexpression elimination
+        if current.operation in ['+', '-', '*', '/'] and current.arg1 and current.arg2:
+            for i in range(position):
+                prev = code[i]
+                if (prev.operation == current.operation and 
+                    prev.arg1 == current.arg1 and 
+                    prev.arg2 == current.arg2 and
+                    prev.result):  # Make sure there's a result to reuse
+                    actions.append(OptimizationAction('common_subexpression', position, 0.6))
+                    break
+        
+        # Strength reduction
+        if current.operation == '*' and current.arg1 and current.arg2:
+            # Replace multiplication by 2 with addition
+            if (self.is_constant(current.arg1) and self.try_parse_float(current.arg1) == 2) or \
+               (self.is_constant(current.arg2) and self.try_parse_float(current.arg2) == 2):
+                actions.append(OptimizationAction('strength_reduction', position, 0.5))
+        
+        # Loop invariant code motion
+        for loop_idx, loop in enumerate(loops):
+            if position in loop['invariant_candidates']:
+                # Find the outermost loop that this instruction is invariant to
+                outermost_loop_idx = loop_idx
+                for j, outer_loop in enumerate(loops):
+                    if j < loop_idx and outer_loop['start'] <= loop['start'] and outer_loop['end'] >= loop['end']:
+                        # This is an outer loop - check if the instruction is also invariant to it
+                        is_invariant_to_outer = True
+                        for arg in [current.arg1, current.arg2]:
+                            if arg and isinstance(arg, str) and not self.is_constant(arg):
+                                if arg in outer_loop['modified_vars']:
+                                    is_invariant_to_outer = False
+                                    break
+                        
+                        if is_invariant_to_outer:
+                            outermost_loop_idx = j
+                
+                actions.append(OptimizationAction(
+                    'loop_invariant', 
+                    position, 
+                    0.9,  # High confidence for loop optimizations
+                    {'loop_idx': outermost_loop_idx}
+                ))
+                break  # Only add one loop invariant action per position
+        
+        return actions
+    
+    def choose_action(self, state: str, actions: List[OptimizationAction]) -> Optional[OptimizationAction]:
+        """Choose an action using epsilon-greedy strategy"""
+        if not actions:
+            return None
+        
+        if state not in self.q_table:
+            self.q_table[state] = {}
+        
+        # Exploration vs exploitation
+        if random.random() < self.epsilon:
+            return random.choice(actions)
+        
+        # Choose best action based on Q-values
+        best_action = None
+        best_value = float('-inf')
+        
+        for action in actions:
+            action_key = f"{action.type}_{action.position}"
+            q_value = self.q_table[state].get(action_key, 0.0)
+            if q_value > best_value:
+                best_value = q_value
+                best_action = action
+        
+        return best_action or random.choice(actions)
+    
+    def apply_optimization(self, code: List[ThreeAddressCode], action: OptimizationAction, loops: List[Dict[str, Any]]) -> List[ThreeAddressCode]:
+        """Apply the chosen optimization action"""
+        if action.type == 'constant_folding':
+            return self.apply_constant_folding(code, action.position)
+        elif action.type == 'dead_code_elimination':
+            return self.apply_dead_code_elimination(code, action.position)
+        elif action.type == 'common_subexpression':
+            return self.apply_common_subexpression_elimination(code, action.position)
+        elif action.type == 'strength_reduction':
+            return self.apply_strength_reduction(code, action.position)
+        elif action.type == 'loop_invariant':
+            return self.apply_loop_invariant_motion(code, action.position, action.loop_info.get('loop_idx'), loops)
+        
+        return code
     
     def optimize(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Main optimization function using GNN"""
+        """Main optimization function using reinforcement learning"""
+        optimized_code = code.copy()
         optimization_log = []
         
-        try:
-            # Build code graph
-            graph = self.build_code_graph(code)
-            optimization_log.append(f"GNN: Built code graph with {len(graph.nodes)} nodes and {len(graph.edges)} edges")
-            
-            # Perform GNN inference
-            predictions = self.gnn_inference(graph)
-            optimization_log.append(f"GNN: Generated {len(predictions)} optimization predictions")
-            
-            # Apply optimizations
-            optimized_code, opt_log = self.apply_optimizations(code, predictions)
-            optimization_log.extend(opt_log)
-            
-            # Log prediction details
-            for pred in predictions:
-                optimization_log.append(
-                    f"GNN prediction: {pred.optimization_type} "
-                    f"(confidence: {pred.confidence:.3f}, benefit: {pred.expected_benefit:.1f})"
-                )
-            
-            return optimized_code, optimization_log
-            
-        except Exception as e:
-            optimization_log.append(f"GNN optimization failed: {str(e)}")
-            return code, optimization_log
-
-# Maintain compatibility with existing interface
-class RLOptimizer(GNNOptimizer):
-    """Compatibility wrapper for the GNN optimizer"""
-    
-    def __init__(self):
-        super().__init__()
-        self.optimization_history = []
-    
-    def optimize(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
-        """Main optimization function - now uses GNN instead of RL"""
-        optimized_code, log = super().optimize(code)
+        # Analyze variable usage for dead code elimination
+        self.analyze_code(optimized_code)
         
-        # Update history for compatibility
-        self.optimization_history.extend([(opt, 1.0) for opt in log])
+        # First pass: Apply constant folding
+        for position in range(len(optimized_code)):
+            instr = optimized_code[position]
+            if instr.operation in ['+', '-', '*', '/'] and self.is_constant(instr.arg1) and self.is_constant(instr.arg2):
+                new_code = self.apply_constant_folding(optimized_code, position)
+                if len(new_code) != len(optimized_code) or any(new_code[i] != optimized_code[i] for i in range(min(len(new_code), len(optimized_code)))):
+                    optimized_code = new_code
+                    optimization_log.append(f"Applied constant_folding at position {position} (reward: {15.00:.2f})")
+                    # Re-analyze after code changes
+                    self.analyze_code(optimized_code)
         
-        return optimized_code, log
-</merged_ 1.0) for opt in log])
+        # Find loops
+        loops = self.find_loops(optimized_code)
         
-        return optimized_code, log
+        # Second pass: Apply loop invariant code motion for constant assignments
+        constant_assignments = self.find_constant_assignments(optimized_code, loops)
+        for ca in constant_assignments:
+            position = ca['position']
+            loop_idx = ca['loop_idx']
+            
+            # Apply loop invariant motion
+            new_code = self.apply_loop_invariant_motion(optimized_code, position, loop_idx, loops)
+            if len(new_code) != len(optimized_code) or any(new_code[i] != optimized_code[i] for i in range(min(len(new_code), len(optimized_code)))):
+                optimized_code = new_code
+                optimization_log.append(f"Applied loop_invariant_motion at position {position} (reward: {30.00:.2f})")
+                # Re-analyze after code changes
+                self.analyze_code(optimized_code)
+                loops = self.find_loops(optimized_code)
+                constant_assignments = self.find_constant_assignments(optimized_code, loops)
+        
+        # Third pass: Apply dead code elimination
+        position = 0
+        while position < len(optimized_code):
+            instr = optimized_code[position]
+            if instr.result and not self.is_variable_used_later(optimized_code, position, instr.result):
+                if instr.operation not in ['PRINT', 'SCAN', 'LABEL', 'GOTO', 'IF_FALSE']:
+                    new_code = self.apply_dead_code_elimination(optimized_code, position)
+                    if len(new_code) != len(optimized_code):
+                        optimized_code = new_code
+                        optimization_log.append(f"Applied dead_code_elimination at position {position} (reward: {25.00:.2f})")
+                        # Re-analyze after code changes
+                        self.analyze_code(optimized_code)
+                        continue  # Don't increment position since we removed an instruction
+            position += 1
+        
+        # Fourth pass: Fix any issues with loop control flow
+        optimized_code = self.fix_loop_control_flow(optimized_code)
+        
+        return optimized_code, optimization_log
