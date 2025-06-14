@@ -394,9 +394,14 @@ class GNNOptimizer:
         optimized_code = intermediate_code.copy()
         optimization_log = []
         
-        for prediction in predictions:
-            if prediction.confidence > 0.6:  # Apply high-confidence optimizations
+        # Sort predictions by confidence and expected benefit
+        sorted_predictions = sorted(predictions, key=lambda x: (x.confidence, x.expected_benefit), reverse=True)
+        
+        for prediction in sorted_predictions:
+            if prediction.confidence > 0.5:  # Apply medium+ confidence optimizations
                 try:
+                    original_length = len(optimized_code)
+                    
                     if prediction.optimization_type == 'constant_folding':
                         optimized_code, log = self._apply_constant_folding(optimized_code)
                         optimization_log.extend(log)
@@ -413,49 +418,241 @@ class GNNOptimizer:
                         optimized_code, log = self._apply_strength_reduction(optimized_code)
                         optimization_log.extend(log)
                     
-                    # Add more optimization implementations as needed
+                    elif prediction.optimization_type == 'loop_unrolling':
+                        optimized_code, log = self._apply_loop_unrolling(optimized_code)
+                        optimization_log.extend(log)
+                    
+                    elif prediction.optimization_type == 'loop_invariant_motion':
+                        optimized_code, log = self._apply_loop_invariant_motion(optimized_code)
+                        optimization_log.extend(log)
+                    
+                    elif prediction.optimization_type == 'function_inlining':
+                        optimized_code, log = self._apply_function_inlining(optimized_code)
+                        optimization_log.extend(log)
+                    
+                    elif prediction.optimization_type == 'instruction_scheduling':
+                        optimized_code, log = self._apply_instruction_scheduling(optimized_code)
+                        optimization_log.extend(log)
+                    
+                    # Log the optimization result
+                    new_length = len(optimized_code)
+                    if new_length != original_length:
+                        optimization_log.append(f"GNN: {prediction.optimization_type} reduced code from {original_length} to {new_length} instructions")
                     
                 except Exception as e:
                     optimization_log.append(f"Failed to apply {prediction.optimization_type}: {str(e)}")
+    
+    return optimized_code, optimization_log
+    
+    def _apply_loop_unrolling(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
+        """Apply loop unrolling optimization"""
+        optimized_code = []
+        log = []
         
-        return optimized_code, optimization_log
+        # Find simple loops that can be unrolled
+        i = 0
+        while i < len(code):
+            instr = code[i]
+            
+            # Look for simple counting loops
+            if (instr.operation == 'ASSIGN' and 
+                i + 4 < len(code) and 
+                code[i + 1].operation == 'LABEL' and
+                code[i + 3].operation == 'IF_FALSE'):
+                
+                # Check if it's a simple increment loop
+                loop_var = instr.result
+                increment_found = False
+                
+                # Look for increment in loop body
+                for j in range(i + 2, min(i + 10, len(code))):
+                    if (code[j].operation == '+' and 
+                        code[j].arg1 == loop_var and 
+                        self._is_constant(code[j].arg2)):
+                        increment_found = True
+                        break
+                
+                if increment_found:
+                    # Simple unroll: duplicate loop body 2 times
+                    optimized_code.append(instr)  # Initial assignment
+                    
+                    # First iteration
+                    for j in range(i + 2, min(i + 6, len(code))):
+                        if code[j].operation not in ['LABEL', 'GOTO', 'IF_FALSE']:
+                            optimized_code.append(code[j])
+                    
+                    # Second iteration (if safe)
+                    for j in range(i + 2, min(i + 6, len(code))):
+                        if code[j].operation not in ['LABEL', 'GOTO', 'IF_FALSE']:
+                            optimized_code.append(code[j])
+                    
+                    log.append(f"GNN-guided loop unrolling: unrolled loop with variable {loop_var}")
+                    i = min(i + 8, len(code))  # Skip processed instructions
+                    continue
+            
+            optimized_code.append(instr)
+            i += 1
+        
+        return optimized_code, log
+
+    def _apply_loop_invariant_motion(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
+        """Apply loop invariant code motion"""
+        optimized_code = []
+        log = []
+        
+        # Find loops and invariant code
+        i = 0
+        while i < len(code):
+            instr = code[i]
+            
+            # Look for loop structures
+            if instr.operation == 'LABEL':
+                loop_end = -1
+                # Find corresponding loop end
+                for j in range(i + 1, len(code)):
+                    if code[j].operation == 'GOTO' and code[j].arg1 == instr.arg1:
+                        loop_end = j
+                        break
+            
+            if loop_end > i:
+                # Analyze loop body for invariant code
+                invariant_code = []
+                loop_body = []
+                
+                for j in range(i + 1, loop_end):
+                    loop_instr = code[j]
+                    
+                    # Check if instruction is loop invariant
+                    if (loop_instr.operation in ['+', '-', '*', '/'] and
+                        self._is_constant(loop_instr.arg1) and 
+                        self._is_constant(loop_instr.arg2)):
+                        invariant_code.append(loop_instr)
+                        log.append(f"GNN-guided loop invariant motion: moved {loop_instr} outside loop")
+                    else:
+                        loop_body.append(loop_instr)
+                
+                # Emit invariant code before loop
+                optimized_code.extend(invariant_code)
+                
+                # Emit loop structure
+                optimized_code.append(instr)  # LABEL
+                optimized_code.extend(loop_body)
+                optimized_code.append(code[loop_end])  # GOTO
+                
+                i = loop_end + 1
+                continue
+            
+            optimized_code.append(instr)
+            i += 1
+        
+        return optimized_code, log
+
+    def _apply_function_inlining(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
+        """Apply function inlining optimization"""
+        # For this simple language, we'll inline simple assignment sequences
+        optimized_code = []
+        log = []
+        
+        # Look for assignment chains that can be inlined
+        i = 0
+        while i < len(code):
+            instr = code[i]
+            
+            # Look for simple assignment chains: a = b; c = a; -> c = b;
+            if (instr.operation == 'ASSIGN' and 
+                i + 1 < len(code) and 
+                code[i + 1].operation == 'ASSIGN' and
+                code[i + 1].arg1 == instr.result):
+                
+                # Inline the assignment
+                inlined_instr = ThreeAddressCode('ASSIGN', instr.arg1, None, code[i + 1].result)
+                optimized_code.append(inlined_instr)
+                log.append(f"GNN-guided function inlining: {instr.result} = {instr.arg1}; {code[i + 1].result} = {instr.result}; -> {code[i + 1].result} = {instr.arg1};")
+                i += 2  # Skip both instructions
+                continue
+            
+            optimized_code.append(instr)
+            i += 1
+        
+        return optimized_code, log
+
+    def _apply_instruction_scheduling(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
+        """Apply instruction scheduling optimization"""
+        optimized_code = []
+        log = []
+        
+        # Simple scheduling: move independent instructions closer to their use
+        i = 0
+        while i < len(code):
+            instr = code[i]
+            
+            # Look for opportunities to reorder independent instructions
+            if (instr.operation in ['+', '-', '*', '/'] and 
+                i + 2 < len(code) and
+                code[i + 1].operation == 'ASSIGN' and
+                code[i + 2].operation in ['+', '-', '*', '/'] and
+                instr.result != code[i + 2].arg1 and 
+                instr.result != code[i + 2].arg2):
+                
+                # Can reorder these instructions
+                optimized_code.append(instr)
+                optimized_code.append(code[i + 2])  # Move later instruction up
+                optimized_code.append(code[i + 1])  # Move assignment down
+                log.append(f"GNN-guided instruction scheduling: reordered instructions for better pipeline utilization")
+                i += 3
+                continue
+            
+            optimized_code.append(instr)
+            i += 1
+        
+        return optimized_code, log
     
     def _apply_constant_folding(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
         """Apply constant folding optimization"""
         optimized_code = []
         log = []
+        changed = True
+        current_code = code.copy()
         
-        for instr in code:
-            if instr.operation in ['+', '-', '*', '/'] and self._is_constant(instr.arg1) and self._is_constant(instr.arg2):
-                try:
-                    val1 = float(instr.arg1)
-                    val2 = float(instr.arg2)
-                    
-                    if instr.operation == '+':
-                        result = val1 + val2
-                    elif instr.operation == '-':
-                        result = val1 - val2
-                    elif instr.operation == '*':
-                        result = val1 * val2
-                    elif instr.operation == '/':
-                        if val2 != 0:
-                            result = val1 / val2
-                        else:
-                            optimized_code.append(instr)
-                            continue
-                    
-                    # Create new assignment instruction
-                    result_str = str(int(result)) if result == int(result) else str(result)
-                    new_instr = ThreeAddressCode('ASSIGN', result_str, None, instr.result)
-                    optimized_code.append(new_instr)
-                    log.append(f"GNN-guided constant folding: {instr.arg1} {instr.operation} {instr.arg2} = {result_str}")
-                    
-                except Exception:
-                    optimized_code.append(instr)
-            else:
-                optimized_code.append(instr)
+        # Multiple passes until no more changes
+        while changed:
+            changed = False
+            temp_code = []
+            
+            for instr in current_code:
+                if instr.operation in ['+', '-', '*', '/'] and self._is_constant(instr.arg1) and self._is_constant(instr.arg2):
+                    try:
+                        val1 = float(instr.arg1)
+                        val2 = float(instr.arg2)
+                        
+                        if instr.operation == '+':
+                            result = val1 + val2
+                        elif instr.operation == '-':
+                            result = val1 - val2
+                        elif instr.operation == '*':
+                            result = val1 * val2
+                        elif instr.operation == '/':
+                            if val2 != 0:
+                                result = val1 / val2
+                            else:
+                                temp_code.append(instr)
+                                continue
+                        
+                        # Create new assignment instruction
+                        result_str = str(int(result)) if result == int(result) else str(result)
+                        new_instr = ThreeAddressCode('ASSIGN', result_str, None, instr.result)
+                        temp_code.append(new_instr)
+                        log.append(f"GNN-guided constant folding: {instr.arg1} {instr.operation} {instr.arg2} = {result_str}")
+                        changed = True
+                        
+                    except Exception:
+                        temp_code.append(instr)
+                else:
+                    temp_code.append(instr)
         
-        return optimized_code, log
+        current_code = temp_code
+    
+    return current_code, log
     
     def _apply_dead_code_elimination(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
         """Apply dead code elimination"""
@@ -590,5 +787,8 @@ class RLOptimizer(GNNOptimizer):
         
         # Update history for compatibility
         self.optimization_history.extend([(opt, 1.0) for opt in log])
+        
+        return optimized_code, log
+</merged_ 1.0) for opt in log])
         
         return optimized_code, log
