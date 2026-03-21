@@ -210,6 +210,8 @@ class DirectASTToPythonGenerator(ASTVisitor):
             return f"({left} and {right})"
         elif node.operator == '||':
             return f"({left} or {right})"
+        elif node.operator == '/':
+            return f"({left} / {right} if ({right}) != 0 else 0)"
         else:
             return f"({left} {node.operator} {right})"
     

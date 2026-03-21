@@ -8,6 +8,10 @@ from .code_generator import PythonCodeGenerator, DirectASTToPythonGenerator
 from .executor import SecureExecutor
 import json
 import time
+import sys
+
+# Support deeply nested ASTs from adversarial inputs
+sys.setrecursionlimit(10000)
 
 class CompilerError(Exception):
     pass

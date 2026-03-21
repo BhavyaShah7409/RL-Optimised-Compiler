@@ -79,6 +79,17 @@ print(result);</textarea>
                         </div>
                     </div>
                     
+                    <div class="pipeline-progress" id="pipelineProgress" style="display: none;">
+                        <div class="pipeline-progress-bar" id="progressBar"></div>
+                        <div class="pipeline-node" id="node-1" title="Lexical"></div>
+                        <div class="pipeline-node" id="node-2" title="AST"></div>
+                        <div class="pipeline-node" id="node-3" title="Semantic"></div>
+                        <div class="pipeline-node" id="node-4" title="Intermediate"></div>
+                        <div class="pipeline-node" id="node-5" title="Optimization"></div>
+                        <div class="pipeline-node" id="node-6" title="Python Gen"></div>
+                        <div class="pipeline-node" id="node-7" title="Execution"></div>
+                    </div>
+                    
                     <div class="compilation-stages">
                         <div class="stage">
                             <div class="stage-header" data-stage="tokens">
@@ -236,11 +247,10 @@ print(result);</textarea>
                         <h3>Contents</h3>
                         <ul>
                             <li><a href="#overview" class="active">Language Overview</a></li>
+                            <li><a href="#rl-architecture">RL Architecture</a></li>
                             <li><a href="#variables">Variables & Assignment</a></li>
                             <li><a href="#arithmetic">Arithmetic Operations</a></li>
                             <li><a href="#control-flow">Control Flow</a></li>
-                            <li><a href="#io">Input & Output</a></li>
-                            <li><a href="#operators">Operators</a></li>
                             <li><a href="#compiler-features">Compiler Features</a></li>
                         </ul>
                     </div>
@@ -248,9 +258,20 @@ print(result);</textarea>
                 
                 <div class="doc-content">
                     <section id="overview" class="doc-section">
-                        <h2>Language Overview</h2>
-                        <p>This custom programming language is designed to demonstrate the core phases of compilation through a simple and readable syntax. It is translated into Python using a structured pipeline that includes tokenization, syntax analysis, semantic validation, intermediate code generation, and optimization. The language serves as an educational tool to explore how compilers work end-to-end, focusing on clarity, transformation accuracy, and performance-aware code generation.
-</p>
+                        <h2>Language & Compiler Overview</h2>
+                        <p>This custom programming language and its accompanying <strong>Reinforcement Learning (RL) Optimized Source-to-Source Compiler</strong> represents a novel approach to automated code enhancement. Designed to translate custom structural semantics directly into heavily optimized Python, the compiler employs a multi-pass pipeline covering tokenization, syntax analysis, semantic validation, intermediate code generation, and AI-driven optimization.</p>
+                        <p>The compiler evaluates every branch of the intermediate representation (Three-Address Code), allowing the autonomous RL agent to explore code restructuring options dynamically before generating the final target executable.</p>
+                    </section>
+                    
+                    <section id="rl-architecture" class="doc-section">
+                        <h2>Reinforcement Learning Architecture</h2>
+                        <p>Unlike traditional compilers that use static heuristic rules (like fixed dead-code elimination loops), this compiler integrates a <strong>Q-Learning reinforcement agent</strong> that treats code optimization as an interactive state-space problem.</p>
+                        <ul class="feature-list">
+                            <li><strong>State Representation:</strong> The RL agent reads the hashed state of the Intermediate Code at specific token indices, mapping assignments, logic operations, and control branches.</li>
+                            <li><strong>Action Space:</strong> The agent can dynamically execute distinct mutations: <code>Constant Folding</code>, <code>Loop Invariant Motion</code>, <code>Common Subexpression Elimination</code>, and <code>Dead Code Removal</code>.</li>
+                            <li><strong>Epsilon-Greedy Logic:</strong> Over repeated executions, the agent balances <em>exploiting</em> known optimization paths (Q-Table lookups) while occasionally <em>exploring</em> new sequence mutations to break out of local minima.</li>
+                            <li><strong>Reward Function:</strong> Code size reduction, loop iteration stripping, and runtime reductions provide positive scalar values to update the Q-Table weights.</li>
+                        </ul>
                     </section>
                     
                     <section id="variables" class="doc-section">
@@ -386,15 +407,12 @@ Alice</pre>
                     </section>
                     
                     <section id="compiler-features" class="doc-section">
-                        <h2>Compiler Features</h2>
+                        <h2>System Security & Sandboxing</h2>
+                        <p>To safely evaluate potentially hazardous or deeply recursive adversarial AST structures, the compiler utilizes a multi-process execution sandbox rather than standard multi-threading.</p>
                         <ul class="feature-list">
-                            <li><strong>Lexical Analysis:</strong> Tokenizes source code into meaningful symbols</li>
-                            <li><strong>Syntax Analysis:</strong> Builds Abstract Syntax Tree (AST) from tokens</li>
-                            <li><strong>Semantic Analysis:</strong> Checks for semantic errors and variable usage</li>
-                            <li><strong>Intermediate Code Generation:</strong> Creates three-address code representation</li>
-                            <li><strong>RL Optimization:</strong> Uses reinforcement learning for code optimization</li>
-                            <li><strong>Code Generation:</strong> Translates to executable Python code</li>
-                            <li><strong>Secure Execution:</strong> Runs generated code in a safe environment</li>
+                            <li><strong>Multi-Process Isolation:</strong> Infinite loops (`while(1)`) are forcefully terminated by isolating Python executions in separate processes, instantly garbage collecting resources upon timeout.</li>
+                            <li><strong>AST Depth Protection:</strong> System recursion limits are hardened to protect against aggressive fuzz-test tree generation.</li>
+                            <li><strong>Zero-Division Safety:</strong> Direct python translation generates ternary protective blocks <code>(Left / Right if Right != 0 else 0)</code>, inherently preventing execution-level crashing.</li>
                         </ul>
                     </section>
                 </div>
@@ -403,7 +421,7 @@ Alice</pre>
     </div>
 
     <footer class="app-footer">
-        <p>Contact Us - bhavyashah7409@gmail.com</p>
+        <p>Built with Vanilla JS • Architecture by RL-Optimized Solutions</p>
     </footer>
 
     <script src="script.js"></script>

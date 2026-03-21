@@ -1,24 +1,27 @@
 // Global variables
-let codeEditor
-let currentCompilationData = null
-const allStagesExpanded = true
+let codeEditor;
+let currentCompilationData = null;
 
 // API Base URL - Update this with your actual Render backend URL
-const API_BASE_URL = "https://rl-optimised-compiler.onrender.com"
+// Set this to true when deploying to Vercel!
+const IS_PRODUCTION = false; 
+const API_BASE_URL = IS_PRODUCTION 
+  ? "https://your-render-app-name.onrender.com" 
+  : "http://localhost:5000";
 
 // Initialize the application
 document.addEventListener("DOMContentLoaded", () => {
-  initializeEditor()
-  setupEventListeners()
-  setupDocumentationNav()
-})
+  initializeEditor();
+  setupEventListeners();
+  setupDocumentationNav();
+});
 
 // Initialize CodeMirror editor
 function initializeEditor() {
-  const textarea = document.getElementById("codeEditor")
+  const textarea = document.getElementById("codeEditor");
   codeEditor = CodeMirror.fromTextArea(textarea, {
     mode: "text/x-csrc",
-    theme: "default", // Light theme
+    theme: "default", // Changed to Default Theme for Professional UI
     lineNumbers: true,
     indentUnit: 4,
     tabSize: 4,
@@ -29,483 +32,435 @@ function initializeEditor() {
     styleActiveLine: true,
     foldGutter: true,
     gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
-  })
+  });
 
   // Load saved code on startup
-  const savedCode = localStorage.getItem("compiler_code")
+  const savedCode = localStorage.getItem("compiler_code");
   if (savedCode) {
-    codeEditor.setValue(savedCode)
+    codeEditor.setValue(savedCode);
   }
 
   // Auto-save functionality
-  let autoSaveTimeout
+  let autoSaveTimeout;
   codeEditor.on("change", () => {
-    clearTimeout(autoSaveTimeout)
+    clearTimeout(autoSaveTimeout);
     autoSaveTimeout = setTimeout(() => {
-      const code = codeEditor.getValue()
-      localStorage.setItem("compiler_code", code)
-    }, 1000)
-  })
+      const code = codeEditor.getValue();
+      localStorage.setItem("compiler_code", code);
+    }, 1000);
+  });
 }
 
 // Setup event listeners
 function setupEventListeners() {
   // Run button
-  document.getElementById("runBtn").addEventListener("click", compileAndRun)
+  document.getElementById("runBtn").addEventListener("click", compileAndRun);
 
   // Copy button
-  document.getElementById("copyBtn").addEventListener("click", copyCode)
+  document.getElementById("copyBtn").addEventListener("click", copyCode);
 
   // Tab switching
   document.querySelectorAll(".tab-button").forEach((button) => {
     button.addEventListener("click", (e) => {
-      const tabName = e.currentTarget.getAttribute("data-tab")
-      switchTab(tabName)
-    })
-  })
+      const tabName = e.currentTarget.getAttribute("data-tab");
+      switchTab(tabName);
+    });
+  });
 
   // Stage toggles
   document.querySelectorAll(".stage-header").forEach((header) => {
     header.addEventListener("click", () => {
-      const stageId = header.getAttribute("data-stage")
-      toggleStage(stageId)
-    })
-  })
+      const stageId = header.getAttribute("data-stage");
+      toggleStage(stageId);
+    });
+  });
 
   // Expand/Collapse all buttons
-  document.getElementById("expandAllBtn").addEventListener("click", expandAllStages)
-  document.getElementById("collapseAllBtn").addEventListener("click", collapseAllStages)
+  document.getElementById("expandAllBtn").addEventListener("click", expandAllStages);
+  document.getElementById("collapseAllBtn").addEventListener("click", collapseAllStages);
 
   // Keyboard shortcuts
   document.addEventListener("keydown", (event) => {
-    // Ctrl+Enter or Cmd+Enter to compile and run
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault()
-      compileAndRun()
+      event.preventDefault();
+      compileAndRun();
     }
-
-    // Ctrl+/ or Cmd+/ to toggle comments (basic implementation)
     if ((event.ctrlKey || event.metaKey) && event.key === "/") {
-      event.preventDefault()
-      toggleComment()
+      event.preventDefault();
+      toggleComment();
     }
-  })
+  });
 }
 
 // Setup documentation navigation
 function setupDocumentationNav() {
-  const docLinks = document.querySelectorAll(".doc-nav a")
+  const docLinks = document.querySelectorAll(".doc-nav a");
 
   docLinks.forEach((link) => {
     link.addEventListener("click", (e) => {
-      e.preventDefault()
+      e.preventDefault();
+      docLinks.forEach((l) => l.classList.remove("active"));
+      link.classList.add("active");
 
-      // Remove active class from all links
-      docLinks.forEach((l) => l.classList.remove("active"))
-
-      // Add active class to clicked link
-      link.classList.add("active")
-
-      // Scroll to section
-      const targetId = link.getAttribute("href").substring(1)
-      const targetSection = document.getElementById(targetId)
+      const targetId = link.getAttribute("href").substring(1);
+      const targetSection = document.getElementById(targetId);
 
       if (targetSection) {
-        targetSection.scrollIntoView({ behavior: "smooth" })
+        targetSection.scrollIntoView({ behavior: "smooth" });
       }
-    })
-  })
+    });
+  });
 }
 
 // Tab switching
 function switchTab(tabName) {
-  // Hide all tab contents
-  document.querySelectorAll(".tab-content").forEach((content) => {
-    content.classList.remove("active")
-  })
-
-  // Remove active class from all tab buttons
-  document.querySelectorAll(".tab-button").forEach((button) => {
-    button.classList.remove("active")
-  })
-
-  // Show selected tab content
-  document.getElementById(tabName).classList.add("active")
-
-  // Add active class to clicked tab button
-  document.querySelector(`.tab-button[data-tab="${tabName}"]`).classList.add("active")
+  document.querySelectorAll(".tab-content").forEach((content) => content.classList.remove("active"));
+  document.querySelectorAll(".tab-button").forEach((button) => button.classList.remove("active"));
+  document.getElementById(tabName).classList.add("active");
+  document.querySelector(`.tab-button[data-tab="${tabName}"]`).classList.add("active");
 }
 
 // Toggle compilation stage visibility
 function toggleStage(stageId) {
-  const content = document.getElementById(stageId)
-  const stage = content.closest(".stage")
-
-  stage.classList.toggle("collapsed")
+  const content = document.getElementById(stageId);
+  const stage = content.closest(".stage");
+  stage.classList.toggle("collapsed");
 }
 
 // Expand all stages
 function expandAllStages() {
-  document.querySelectorAll(".stage").forEach((stage) => {
-    stage.classList.remove("collapsed")
-  })
+  document.querySelectorAll(".stage").forEach((stage) => stage.classList.remove("collapsed"));
 }
 
 // Collapse all stages
 function collapseAllStages() {
-  document.querySelectorAll(".stage").forEach((stage) => {
-    stage.classList.add("collapsed")
-  })
+  document.querySelectorAll(".stage").forEach((stage) => stage.classList.add("collapsed"));
 }
 
 // Copy code to clipboard
 function copyCode() {
-  const code = codeEditor.getValue()
-  navigator.clipboard
-    .writeText(code)
+  const code = codeEditor.getValue();
+  navigator.clipboard.writeText(code)
     .then(() => {
-      const btn = document.getElementById("copyBtn")
-      const originalText = btn.innerHTML
+      const btn = document.getElementById("copyBtn");
+      const originalText = btn.innerHTML;
       btn.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
         Copied!
-      `
-      btn.classList.add("success")
-
+      `;
+      btn.classList.add("success");
       setTimeout(() => {
-        btn.innerHTML = originalText
-        btn.classList.remove("success")
-      }, 2000)
+        btn.innerHTML = originalText;
+        btn.classList.remove("success");
+      }, 2000);
     })
     .catch((err) => {
-      console.error("Failed to copy code:", err)
-      showToast("Failed to copy code to clipboard", "error")
-    })
+      console.error("Failed to copy code:", err);
+      showToast("Failed to copy code to clipboard", "error");
+    });
 }
 
 // Show toast notification
 function showToast(message, type = "info") {
-  // Create toast element if it doesn't exist
-  let toast = document.querySelector(".toast")
+  let toast = document.querySelector(".toast");
   if (!toast) {
-    toast = document.createElement("div")
-    toast.className = "toast"
-    document.body.appendChild(toast)
+    toast = document.createElement("div");
+    toast.className = "toast";
+    document.body.appendChild(toast);
   }
-
-  // Set message and type
-  toast.textContent = message
-  toast.className = `toast ${type}`
-
-  // Show toast
-  toast.classList.add("show")
-
-  // Hide toast after 3 seconds
-  setTimeout(() => {
-    toast.classList.remove("show")
-  }, 3000)
+  toast.textContent = message;
+  toast.className = `toast ${type}`;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 3000);
 }
+
+// Async delay utility
+const delay = ms => new Promise(res => setTimeout(res, ms));
 
 // Main compilation and execution function
 async function compileAndRun() {
-  const runBtn = document.getElementById("runBtn")
-  const originalText = runBtn.innerHTML
+  const runBtn = document.getElementById("runBtn");
+  const originalText = runBtn.innerHTML;
 
-  // Show loading state
-  runBtn.innerHTML = `
-    <span class="loading"></span>
-    Compiling...
-  `
-  runBtn.disabled = true
+  runBtn.innerHTML = `<span class="loading"></span> Compiling...`;
+  runBtn.disabled = true;
 
-  // Update status
-  updateExecutionStatus("Compiling...", "info")
+  updateExecutionStatus("Compiling to Source...", "info");
+  
+  // Show UI Bar and reset
+  const pipelineProgress = document.getElementById("pipelineProgress");
+  pipelineProgress.style.display = "flex";
+  document.getElementById("progressBar").style.width = "0%";
+  for (let i = 1; i <= 7; i++) {
+    const node = document.getElementById(`node-${i}`);
+    node.className = "pipeline-node";
+  }
 
   try {
-    const sourceCode = codeEditor.getValue()
-    const inputData = document.getElementById("inputData").value
+    const sourceCode = codeEditor.getValue();
+    const inputData = document.getElementById("inputData").value;
 
-    if (!sourceCode.trim()) {
-      throw new Error("Please enter some source code")
-    }
+    if (!sourceCode.trim()) throw new Error("Please enter some source code");
 
-    // Send compilation request to Render backend
     const response = await fetch(`${API_BASE_URL}/api/compile`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        source_code: sourceCode,
-        input_data: inputData,
-      }),
-    })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_code: sourceCode, input_data: inputData }),
+    });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const result = await response.json();
+    if (!result.success) throw new Error(result.error || "Compilation failed");
 
-    const result = await response.json()
+    currentCompilationData = result.data;
+    
+    // Animate successful compilation stages staggeringly!
+    await updateCompilationStagesAnimated(result.data);
 
-    if (!result.success) {
-      throw new Error(result.error || "Compilation failed")
-    }
+    const executionStage = document.getElementById("execution").closest(".stage");
+    executionStage.classList.remove("collapsed");
+    executionStage.scrollIntoView({ behavior: "smooth" });
 
-    // Store compilation data
-    currentCompilationData = result.data
-
-    // Update all compilation stages
-    updateCompilationStages(result.data)
-
-    // Expand the execution results stage
-    const executionStage = document.getElementById("execution").closest(".stage")
-    executionStage.classList.remove("collapsed")
-
-    // Scroll to execution results
-    executionStage.scrollIntoView({ behavior: "smooth" })
-
-    // Update execution status
     if (result.data.success) {
-      updateExecutionStatus("Completed Successfully", "success")
+      updateExecutionStatus("Executed Successfully", "success");
     } else {
-      updateExecutionStatus("Completed with Errors", "error")
+      updateExecutionStatus("Completed with Errors", "warning");
     }
   } catch (error) {
-    console.error("Compilation error:", error)
-    updateExecutionStatus("Compilation Failed", "error")
+    console.error("Compilation error:", error);
+    updateExecutionStatus("Compilation Failed", "error");
 
-    // Show error in the error section
-    const errorSection = document.getElementById("errorSection")
-    const errorResult = document.getElementById("errorResult")
-    errorSection.style.display = "block"
+    const errorSection = document.getElementById("errorSection");
+    const errorResult = document.getElementById("errorResult");
+    errorSection.style.display = "block";
 
-    // Show more detailed error message
     if (error.message.includes("Failed to fetch") || error.message.includes("HTTP error")) {
-      errorResult.textContent = `Connection Error: Unable to connect to the backend server. Please check if the backend is running at ${API_BASE_URL}`
+      errorResult.textContent = `Connection Error to Backend: ${API_BASE_URL}`;
     } else {
-      errorResult.textContent = error.message
+      errorResult.textContent = error.message;
     }
+    
+    // Set error on progress bar
+    document.getElementById("node-1").classList.add("error");
 
-    // Clear other outputs
-    clearCompilationStages()
+    clearCompilationStages();
   } finally {
-    // Restore button state
-    runBtn.innerHTML = originalText
-    runBtn.disabled = false
+    runBtn.innerHTML = originalText;
+    runBtn.disabled = false;
   }
 }
 
-// Update execution status
 function updateExecutionStatus(message, type) {
-  const statusElement = document.getElementById("executionStatus")
-  statusElement.textContent = `Status: ${message}`
-  statusElement.className = type
-
+  const statusElement = document.getElementById("executionStatus");
+  statusElement.textContent = `Status: ${message}`;
+  statusElement.className = type;
   if (currentCompilationData && currentCompilationData.execution_time) {
-    document.getElementById("executionTime").textContent =
-      `Execution time: ${(currentCompilationData.execution_time * 1000).toFixed(2)}ms`
+    document.getElementById("executionTime").textContent = `Execution time: ${(currentCompilationData.execution_time * 1000).toFixed(2)}ms`;
   }
 }
 
-// Update all compilation stages with data
-function updateCompilationStages(data) {
-  // 1. Tokens
-  updateTokensOutput(data.tokens)
+// Mark node progress
+function setPipelineProgress(stageIndex, status = "active") {
+    const node = document.getElementById(`node-${stageIndex}`);
+    if (node) node.classList.add(status);
+    
+    const maxStages = 7;
+    const progressPercent = ((stageIndex) / (maxStages - 1)) * 100;
+    document.getElementById("progressBar").style.width = `${progressPercent}%`;
+}
+
+async function typeWriterOutput(element, htmlContent, speed = 2) {
+    element.innerHTML = "";
+    element.classList.add('typewriter');
+    
+    // To support syntax highlighted HTML nodes being typed, we insert directly
+    // since typing raw HTML chars looks bad. We simulate wait.
+    element.innerHTML = htmlContent;
+    
+    // Wait for dramatic effect
+    await delay(300);
+    element.classList.remove('typewriter');
+}
+
+// Function to safely encode HTML except for our injected span tags
+function escapeHTML(str) {
+    return str.replace(/[&<>'"]/g, 
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag)
+    );
+}
+
+// Animated updates
+async function updateCompilationStagesAnimated(data) {
+  // Clear and Collapse everything for dramatic effect
+  collapseAllStages();
+  
+  // 1. Lexical Analysis
+  setPipelineProgress(1, "active");
+  document.getElementById("tokens").closest(".stage").classList.remove("collapsed");
+  await delay(400);
+  const tokenHTML = formatTokensOutput(data.tokens);
+  await typeWriterOutput(document.getElementById("tokensOutput"), tokenHTML);
+  setPipelineProgress(1, "success");
 
   // 2. AST
-  updateASTOutput(data.ast)
+  setPipelineProgress(2, "active");
+  document.getElementById("ast").closest(".stage").classList.remove("collapsed");
+  await delay(300);
+  const astHTML = formatASTOutput(data.ast);
+  await typeWriterOutput(document.getElementById("astOutput"), astHTML);
+  setPipelineProgress(2, "success");
 
   // 3. Semantic Analysis
-  updateSemanticOutput(data.semantic_errors)
+  setPipelineProgress(3, "active");
+  await delay(200);
+  if (data.semantic_errors && data.semantic_errors.length > 0) {
+      document.getElementById("semanticOutput").textContent = `Semantic Errors Found:\n${data.semantic_errors.join("\n")}`;
+      document.getElementById("semanticOutput").classList.add("error-output");
+      setPipelineProgress(3, "error");
+  } else {
+      document.getElementById("semanticOutput").textContent = "No semantic errors found ✓";
+      document.getElementById("semanticOutput").classList.remove("error-output");
+      setPipelineProgress(3, "success");
+  }
 
   // 4. Intermediate Code
-  updateIntermediateOutput(data.intermediate_code)
+  setPipelineProgress(4, "active");
+  document.getElementById("intermediate").closest(".stage").classList.remove("collapsed");
+  await delay(200);
+  const intHTML = formatIntermediateOutput(data.intermediate_code);
+  await typeWriterOutput(document.getElementById("intermediateOutput"), intHTML);
+  setPipelineProgress(4, "success");
 
   // 5. Optimization
-  updateOptimizationOutput(data.optimized_code, data.optimization_log)
+  setPipelineProgress(5, "active");
+  document.getElementById("optimization").closest(".stage").classList.remove("collapsed");
+  await delay(300);
+  updateOptimizationOutput(data.optimized_code, data.optimization_log);
+  setPipelineProgress(5, "success");
 
   // 6. Python Code
-  updatePythonOutput(data.python_code)
+  setPipelineProgress(6, "active");
+  document.getElementById("python").closest(".stage").classList.remove("collapsed");
+  await delay(200);
+  await typeWriterOutput(document.getElementById("pythonOutput"), escapeHTML(data.python_code || "No Python code generated"));
+  setPipelineProgress(6, "success");
 
   // 7. Execution Results
-  updateExecutionOutput(data.output, data.errors, data.success)
+  setPipelineProgress(7, "active");
+  await delay(300);
+  updateExecutionOutput(data.output, data.errors, data.success);
+  setPipelineProgress(7, data.success ? "success" : "error");
 }
 
-// Update tokens output
-function updateTokensOutput(tokens) {
-  const output = document.getElementById("tokensOutput")
-  if (tokens && tokens.length > 0) {
-    // Format each token with proper padding and handle newlines
-    const tokenList = tokens
-      .map((token) => {
-        // Replace newline values with visible representation
-        const displayValue = token.type === "NEWLINE" ? "\\n" : token.value
-
-        // Fix token type display (RBRACE should be RPAREN)
-        const displayType = token.type === "RBRACE" ? "RPAREN" : token.type
-
-        // Ensure consistent padding
-        return `${displayType.padEnd(15)} | ${displayValue.padEnd(15)} | Line ${token.line}, Col ${token.column}`
-      })
-      .join("\n")
-
-    output.textContent = `Type            | Value           | Position\n${"─".repeat(60)}\n${tokenList}`
-  } else {
-    output.textContent = "No tokens generated"
-  }
+function formatTokensOutput(tokens) {
+    if (!tokens || tokens.length === 0) return "No tokens generated";
+    let html = `Type            | Value           | Position\n${"─".repeat(60)}\n`;
+    
+    tokens.forEach(token => {
+        const displayValue = escapeHTML(token.type === "NEWLINE" ? "\\n" : token.value);
+        const displayType = token.type === "RBRACE" ? "RPAREN" : token.type;
+        
+        let colorClass = "token-identifier";
+        if (["KEYWORD", "TYPE", "CONTROL"].includes(displayType)) colorClass = "token-keyword";
+        if (displayType === "NUMBER") colorClass = "token-number";
+        if (displayType === "STRING") colorClass = "token-string";
+        if (["OPERATOR", "ASSIGN"].includes(displayType)) colorClass = "token-operator";
+        
+        html += `${displayType.padEnd(15)} | <span class="${colorClass}">${displayValue.padEnd(15)}</span> | Line ${token.line}, Col ${token.column}\n`;
+    });
+    return html;
 }
 
-// Update AST output
-function updateASTOutput(ast) {
-  const output = document.getElementById("astOutput")
-  if (ast) {
-    output.textContent = JSON.stringify(ast, null, 2)
-  } else {
-    output.textContent = "No AST generated"
-  }
+function formatASTOutput(ast) {
+    if (!ast) return "No AST generated";
+    // We stringify the JSON but color the keys
+    let str = JSON.stringify(ast, null, 2);
+    str = escapeHTML(str);
+    // Rough regex highlight for JSON AST representation
+    str = str.replace(/"type":\s*&quot;([^&]+)&quot;/g, '"type": &quot;<span class="ast-node">$1</span>&quot;');
+    str = str.replace(/"(value|operation|name)":\s*&quot;([^&]+)&quot;/g, '"$1": &quot;<span class="token-string">$2</span>&quot;');
+    return str;
 }
 
-// Update semantic analysis output
-function updateSemanticOutput(errors) {
-  const output = document.getElementById("semanticOutput")
-  if (errors && errors.length > 0) {
-    output.textContent = `Semantic Errors Found:\n${errors.join("\n")}`
-    output.classList.add("error-output")
-  } else {
-    output.textContent = "No semantic errors found"
-    output.classList.remove("error-output")
-  }
+function formatIntermediateOutput(code) {
+    if (!code || code.length === 0) return "No intermediate code generated";
+    let str = code.join("\n");
+    str = escapeHTML(str);
+    str = str.replace(/([a-zA-Z0-9_]+) =/g, '<span class="token-identifier">$1</span> =');
+    str = str.replace(/GOTO|IF_FALSE|PRINT|SCAN/g, '<span class="token-keyword">$&</span>');
+    str = str.replace(/([0-9.]+)/g, '<span class="token-number">$1</span>');
+    return str;
 }
 
-// Update intermediate code output
-function updateIntermediateOutput(code) {
-  const output = document.getElementById("intermediateOutput")
-  if (code && code.length > 0) {
-    output.textContent = code.join("\n")
-  } else {
-    output.textContent = "No intermediate code generated"
-  }
-}
-
-// Update optimization output
 function updateOptimizationOutput(optimizedCode, optimizationLog) {
-  const logElement = document.getElementById("optimizationLog")
-  const codeElement = document.getElementById("optimizedOutput")
+  const logElement = document.getElementById("optimizationLog");
+  const codeElement = document.getElementById("optimizedOutput");
 
   if (optimizationLog && optimizationLog.length > 0) {
-    logElement.innerHTML = optimizationLog.join("<br>")
+    logElement.innerHTML = "=== RL Optimization Agent Logs ===<br>" + optimizationLog.join("<br>");
   } else {
-    logElement.innerHTML = "No optimizations applied"
+    logElement.innerHTML = "No optimizations applied by Agent";
   }
 
   if (optimizedCode && optimizedCode.length > 0) {
-    codeElement.textContent = optimizedCode.join("\n")
+    const intHTML = formatIntermediateOutput(optimizedCode);
+    codeElement.innerHTML = intHTML;
   } else {
-    codeElement.textContent = "No optimized code generated"
+    codeElement.textContent = "No optimized code generated";
   }
 }
 
-// Update Python code output
-function updatePythonOutput(code) {
-  const output = document.getElementById("pythonOutput")
-  if (code) {
-    output.textContent = code
-  } else {
-    output.textContent = "No Python code generated"
-  }
-}
-
-// Update execution output
 function updateExecutionOutput(output, errors, success) {
-  const outputElement = document.getElementById("outputResult")
-  const errorElement = document.getElementById("errorResult")
-  const errorSection = document.getElementById("errorSection")
+  const outputElement = document.getElementById("outputResult");
+  const errorElement = document.getElementById("errorResult");
+  const errorSection = document.getElementById("errorSection");
 
-  // Update output
   if (output) {
-    outputElement.textContent = output
+    // Add typewriter effect
+    outputElement.classList.add('success');
+    outputElement.textContent = output;
   } else {
-    outputElement.textContent = "No output generated"
+    outputElement.textContent = "No output generated";
   }
 
-  // Update errors
   if (errors && errors.trim()) {
-    errorSection.style.display = "block"
-    errorElement.textContent = errors
+    errorSection.style.display = "block";
+    errorElement.textContent = errors;
   } else {
-    errorSection.style.display = "none"
+    errorSection.style.display = "none";
   }
 }
 
-// Clear all compilation stages
 function clearCompilationStages() {
-  document.getElementById("tokensOutput").textContent = "Run compilation to see tokens..."
-  document.getElementById("astOutput").textContent = "Run compilation to see AST..."
-  document.getElementById("semanticOutput").textContent = "Run compilation to see semantic analysis..."
-  document.getElementById("intermediateOutput").textContent = "Run compilation to see intermediate code..."
-  document.getElementById("optimizationLog").textContent = "Run compilation to see optimization log..."
-  document.getElementById("optimizedOutput").textContent = "Optimized code will appear here..."
-  document.getElementById("pythonOutput").textContent = "Run compilation to see generated Python code..."
-  document.getElementById("outputResult").textContent = "Run compilation to see output..."
-  document.getElementById("executionTime").textContent = "Execution time: --"
+  document.getElementById("tokensOutput").textContent = "Run compilation to see tokens...";
+  document.getElementById("astOutput").textContent = "Run compilation to see AST...";
+  document.getElementById("semanticOutput").textContent = "Run compilation to see semantic analysis...";
+  document.getElementById("intermediateOutput").textContent = "Run compilation to see intermediate code...";
+  document.getElementById("optimizationLog").textContent = "Run compilation to see optimization log...";
+  document.getElementById("optimizedOutput").textContent = "Optimized code will appear here...";
+  document.getElementById("pythonOutput").textContent = "Run compilation to see generated Python code...";
+  document.getElementById("outputResult").textContent = "Run compilation to see output...";
+  document.getElementById("executionTime").textContent = "Execution time: --";
+  document.getElementById("pipelineProgress").style.display = "none";
 }
 
-// Basic comment toggling
 function toggleComment() {
-  const cursor = codeEditor.getCursor()
-  const line = codeEditor.getLine(cursor.line)
+  const cursor = codeEditor.getCursor();
+  const line = codeEditor.getLine(cursor.line);
 
   if (line.trim().startsWith("//")) {
-    // Remove comment
-    const newLine = line.replace(/^\s*\/\/\s?/, "")
-    codeEditor.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length })
+    const newLine = line.replace(/^\s*\/\/\s?/, "");
+    codeEditor.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
   } else {
-    // Add comment
-    const indentMatch = line.match(/^(\s*)/)
-    const indent = indentMatch ? indentMatch[1] : ""
-    const newLine = indent + "// " + line.trim()
-    codeEditor.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length })
+    const indentMatch = line.match(/^(\s*)/);
+    const indent = indentMatch ? indentMatch[1] : "";
+    const newLine = indent + "// " + line.trim();
+    codeEditor.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
   }
 }
-
-// Add CSS for toast notifications
-const toastStyle = document.createElement("style")
-toastStyle.textContent = `
-.toast {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  padding: 12px 20px;
-  background-color: var(--color-bg);
-  color: var(--color-text);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity var(--transition-normal), transform var(--transition-normal);
-  z-index: 1000;
-  max-width: 300px;
-}
-
-.toast.show {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.toast.info {
-  border-left: 4px solid var(--color-primary);
-}
-
-.toast.success {
-  border-left: 4px solid var(--color-success);
-}
-
-.toast.error {
-  border-left: 4px solid var(--color-error);
-}
-
-.toast.warning {
-  border-left: 4px solid var(--color-warning);
-}
-`
-document.head.appendChild(toastStyle)

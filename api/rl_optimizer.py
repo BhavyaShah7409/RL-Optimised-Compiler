@@ -369,10 +369,7 @@ class RLOptimizer:
                         
                         if loop_var:
                             # Insert a proper condition before the IF_FALSE
-                            if 'j' in loop_var:
-                                new_code.insert(i, ThreeAddressCode('<', loop_var, '2.0', var_name))
-                            elif 'i' in loop_var:
-                                new_code.insert(i, ThreeAddressCode('<', loop_var, '2.0', var_name))
+                            new_code.insert(i, ThreeAddressCode('<', loop_var, '2.0', var_name))
                             
                             # Update all positions after the insertion
                             return self.fix_loop_control_flow(new_code)
@@ -380,8 +377,8 @@ class RLOptimizer:
         # Fix loop increments
         for i, instr in enumerate(new_code):
             if instr.operation == '+' and instr.result and instr.result.startswith('t'):
-                # Check if this is incrementing a loop variable
-                if instr.arg1 in ['i', 'j'] and instr.arg2 == '1.0':
+                # Check if this is incrementing a loop variable (any variable plus 1.0)
+                if instr.arg1 and instr.arg2 == '1.0':
                     # Replace with proper assignment
                     new_code[i] = ThreeAddressCode('ASSIGN', instr.result, None, instr.arg1)
                     
@@ -541,60 +538,66 @@ class RLOptimizer:
         
         return code
     
-    def optimize(self, code: List[ThreeAddressCode]) -> Tuple[List[ThreeAddressCode], List[str]]:
+    def optimize(self, code: List[ThreeAddressCode], max_steps: int = 50) -> Tuple[List[ThreeAddressCode], List[str]]:
         """Main optimization function using reinforcement learning"""
         optimized_code = code.copy()
         optimization_log = []
         
-        # Analyze variable usage for dead code elimination
         self.analyze_code(optimized_code)
-        
-        # First pass: Apply constant folding
-        for position in range(len(optimized_code)):
-            instr = optimized_code[position]
-            if instr.operation in ['+', '-', '*', '/'] and self.is_constant(instr.arg1) and self.is_constant(instr.arg2):
-                new_code = self.apply_constant_folding(optimized_code, position)
-                if len(new_code) != len(optimized_code) or any(new_code[i] != optimized_code[i] for i in range(min(len(new_code), len(optimized_code)))):
-                    optimized_code = new_code
-                    optimization_log.append(f"Applied constant_folding at position {position} (reward: {15.00:.2f})")
-                    # Re-analyze after code changes
-                    self.analyze_code(optimized_code)
-        
-        # Find loops
         loops = self.find_loops(optimized_code)
         
-        # Second pass: Apply loop invariant code motion for constant assignments
-        constant_assignments = self.find_constant_assignments(optimized_code, loops)
-        for ca in constant_assignments:
-            position = ca['position']
-            loop_idx = ca['loop_idx']
+        step = 0
+        changed = True
+        
+        # RL Optimization Loop
+        while changed and step < max_steps:
+            changed = False
+            position = 0
             
-            # Apply loop invariant motion
-            new_code = self.apply_loop_invariant_motion(optimized_code, position, loop_idx, loops)
-            if len(new_code) != len(optimized_code) or any(new_code[i] != optimized_code[i] for i in range(min(len(new_code), len(optimized_code)))):
-                optimized_code = new_code
-                optimization_log.append(f"Applied loop_invariant_motion at position {position} (reward: {30.00:.2f})")
-                # Re-analyze after code changes
-                self.analyze_code(optimized_code)
-                loops = self.find_loops(optimized_code)
-                constant_assignments = self.find_constant_assignments(optimized_code, loops)
+            while position < len(optimized_code):
+                state = self.get_state_key(optimized_code, position)
+                actions = self.get_possible_actions(optimized_code, position, loops)
+                
+                if actions:
+                    action = self.choose_action(state, actions)
+                    if action:
+                        old_code = optimized_code.copy()
+                        new_code = self.apply_optimization(optimized_code, action, loops)
+                        
+                        # Check if code actually changed
+                        code_changed = len(new_code) != len(old_code)
+                        if not code_changed:
+                            for idx in range(len(old_code)):
+                                if new_code[idx] != old_code[idx]:
+                                    code_changed = True
+                                    break
+                                    
+                        if code_changed:
+                            reward = self.calculate_reward(old_code, new_code)
+                            next_state = self.get_state_key(new_code, position)
+                            self.update_q_value(state, action, reward, next_state)
+                            
+                            action_key = f"{action.type}_{action.position}"
+                            q_val = self.q_table[state].get(action_key, 0.0)
+                            
+                            optimized_code = new_code
+                            optimization_log.append(f"Applied {action.type} at position {position} (reward: {reward:.2f}, Q: {q_val:.2f})")
+                            
+                            self.analyze_code(optimized_code)
+                            loops = self.find_loops(optimized_code)
+                            changed = True
+                            
+                            # Epsilon decay to favor exploitation over time
+                            self.epsilon = max(0.01, self.epsilon * 0.99)
+                            
+                            # If we removed an instruction (e.g., dead code), don't advance the position
+                            if len(new_code) < len(old_code):
+                                continue
+                                
+                position += 1
+            step += 1
         
-        # Third pass: Apply dead code elimination
-        position = 0
-        while position < len(optimized_code):
-            instr = optimized_code[position]
-            if instr.result and not self.is_variable_used_later(optimized_code, position, instr.result):
-                if instr.operation not in ['PRINT', 'SCAN', 'LABEL', 'GOTO', 'IF_FALSE']:
-                    new_code = self.apply_dead_code_elimination(optimized_code, position)
-                    if len(new_code) != len(optimized_code):
-                        optimized_code = new_code
-                        optimization_log.append(f"Applied dead_code_elimination at position {position} (reward: {25.00:.2f})")
-                        # Re-analyze after code changes
-                        self.analyze_code(optimized_code)
-                        continue  # Don't increment position since we removed an instruction
-            position += 1
-        
-        # Fourth pass: Fix any issues with loop control flow
+        # Final pass: Fix any issues with loop control flow after optimizations
         optimized_code = self.fix_loop_control_flow(optimized_code)
         
         return optimized_code, optimization_log
