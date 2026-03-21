@@ -4,9 +4,9 @@ let currentCompilationData = null;
 
 // API Base URL - Update this with your actual Render backend URL
 // Set this to true when deploying to Vercel!
-const IS_PRODUCTION = false; 
+const IS_PRODUCTION = true; 
 const API_BASE_URL = IS_PRODUCTION 
-  ? "https://your-render-app-name.onrender.com" 
+  ? "https://rl-optimised-compiler.onrender.com" 
   : "http://localhost:5000";
 
 // Initialize the application
