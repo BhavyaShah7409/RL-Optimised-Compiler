@@ -1,466 +1,630 @@
-// Global variables
-let codeEditor;
-let currentCompilationData = null;
+/* ═══════════════════════════════════════════════════════════════
+   RL-Optimized Source to Source Compiler — script.js
+   Fixes: #17 (RBRACE→RPAREN masking removed), #18 (number regex)
+═══════════════════════════════════════════════════════════════ */
 
-// API Base URL - Update this with your actual Render backend URL
-// Set this to true when deploying to Vercel!
-const IS_PRODUCTION = true; 
-const API_BASE_URL = IS_PRODUCTION 
-  ? "https://rl-optimised-compiler.onrender.com" 
-  : "http://localhost:5000";
+"use strict";
 
-// Initialize the application
+// ── Config ───────────────────────────────────────────────────────
+const API_BASE_URL = (() => {
+  if (typeof window !== "undefined") {
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return window.location.port === "5000" ? "" : "http://localhost:5000";
+    }
+    if (window.location.protocol === "file:") {
+      return "http://localhost:5000";
+    }
+  }
+  return "https://rl-optimised-compiler.onrender.com";
+})();
+
+// ── State ────────────────────────────────────────────────────────
+let editor = null;
+let compilationData = null;
+
+// ── Init ─────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  initializeEditor();
-  setupEventListeners();
-  setupDocumentationNav();
+  initTheme();
+  initEditor();
+  bindEvents();
+  bindDocNav();
 });
 
-// Initialize CodeMirror editor
-function initializeEditor() {
-  const textarea = document.getElementById("codeEditor");
-  codeEditor = CodeMirror.fromTextArea(textarea, {
-    mode: "text/x-csrc",
-    theme: "default", // Changed to Default Theme for Professional UI
-    lineNumbers: true,
-    indentUnit: 4,
-    tabSize: 4,
-    indentWithTabs: false,
-    lineWrapping: true,
-    matchBrackets: true,
-    autoCloseBrackets: true,
-    styleActiveLine: true,
-    foldGutter: true,
-    gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+// ── Theme Management (Default: Light) ─────────────────────────────
+function initTheme() {
+  const saved = localStorage.getItem("rl_compiler_theme");
+  const theme = saved || "light"; // default-light
+  setTheme(theme);
+}
+
+function setTheme(theme) {
+  const isDark = theme === "dark";
+  document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+  localStorage.setItem("rl_compiler_theme", isDark ? "dark" : "light");
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "light";
+  setTheme(current === "dark" ? "light" : "dark");
+}
+
+// ── Editor setup ─────────────────────────────────────────────────
+function initEditor() {
+  const ta = document.getElementById("codeEditor");
+  editor = CodeMirror.fromTextArea(ta, {
+    mode:             "text/x-csrc",
+    theme:            "default",
+    lineNumbers:      true,
+    indentUnit:       4,
+    tabSize:          4,
+    indentWithTabs:   false,
+    lineWrapping:     true,
+    matchBrackets:    true,
+    autoCloseBrackets:true,
+    styleActiveLine:  true,
   });
 
-  // Load saved code on startup
-  const savedCode = localStorage.getItem("compiler_code");
-  if (savedCode) {
-    codeEditor.setValue(savedCode);
-  }
+  const saved = localStorage.getItem("rl_compiler_code");
+  if (saved) editor.setValue(saved);
 
-  // Auto-save functionality
-  let autoSaveTimeout;
-  codeEditor.on("change", () => {
-    clearTimeout(autoSaveTimeout);
-    autoSaveTimeout = setTimeout(() => {
-      const code = codeEditor.getValue();
-      localStorage.setItem("compiler_code", code);
-    }, 1000);
+  let debounce;
+  editor.on("change", () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      localStorage.setItem("rl_compiler_code", editor.getValue());
+    }, 800);
   });
 }
 
-// Setup event listeners
-function setupEventListeners() {
-  // Run button
+// ── Pipeline Navigation State ─────────────────────────────────────
+let currentStageIndex = 7;
+let currentViewMode = "focused"; // "focused" | "all"
+
+// ── Event bindings ────────────────────────────────────────────────
+function bindEvents() {
+  document.getElementById("themeToggleBtn")?.addEventListener("click", toggleTheme);
+
   document.getElementById("runBtn").addEventListener("click", compileAndRun);
 
-  // Copy button
-  document.getElementById("copyBtn").addEventListener("click", copyCode);
+  document.getElementById("copyBtn").addEventListener("click", () => {
+    const code = editor.getValue();
+    navigator.clipboard.writeText(code).then(() => {
+      showToast("Copied to clipboard", "success");
+    }).catch(() => showToast("Copy failed", "error"));
+  });
 
-  // Tab switching
-  document.querySelectorAll(".tab-button").forEach((button) => {
-    button.addEventListener("click", (e) => {
-      const tabName = e.currentTarget.getAttribute("data-tab");
-      switchTab(tabName);
+  document.getElementById("clearBtn").addEventListener("click", () => {
+    editor.setValue("");
+    localStorage.removeItem("rl_compiler_code");
+    clearStages();
+    showToast("Editor cleared");
+  });
+
+  // Tab switching (Compiler vs Docs)
+  document.querySelectorAll(".tab-button").forEach(btn => {
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  });
+
+  // Pipeline Stepper Cards
+  document.querySelectorAll(".step-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const stageIdx = parseInt(card.dataset.stage, 10);
+      setActiveStage(stageIdx);
     });
   });
 
-  // Stage toggles
-  document.querySelectorAll(".stage-header").forEach((header) => {
-    header.addEventListener("click", () => {
-      const stageId = header.getAttribute("data-stage");
-      toggleStage(stageId);
-    });
-  });
+  // View Mode Toggle (Focused vs All Stages)
+  document.getElementById("viewFocusedBtn")?.addEventListener("click", () => setViewMode("focused"));
+  document.getElementById("viewAllBtn")?.addEventListener("click", () => setViewMode("all"));
 
-  // Expand/Collapse all buttons
-  document.getElementById("expandAllBtn").addEventListener("click", expandAllStages);
-  document.getElementById("collapseAllBtn").addEventListener("click", collapseAllStages);
+  // Prev / Next stage buttons
+  document.getElementById("prevStageBtn")?.addEventListener("click", () => {
+    if (currentStageIndex > 1) setActiveStage(currentStageIndex - 1);
+  });
+  document.getElementById("nextStageBtn")?.addEventListener("click", () => {
+    if (currentStageIndex < 7) setActiveStage(currentStageIndex + 1);
+  });
 
   // Keyboard shortcuts
-  document.addEventListener("keydown", (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault();
-      compileAndRun();
-    }
-    if ((event.ctrlKey || event.metaKey) && event.key === "/") {
-      event.preventDefault();
-      toggleComment();
-    }
+  document.addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); compileAndRun(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === "/")     { e.preventDefault(); toggleComment(); }
+    if (e.altKey && e.key === "ArrowLeft")             { e.preventDefault(); if (currentStageIndex > 1) setActiveStage(currentStageIndex - 1); }
+    if (e.altKey && e.key === "ArrowRight")            { e.preventDefault(); if (currentStageIndex < 7) setActiveStage(currentStageIndex + 1); }
   });
 }
 
-// Setup documentation navigation
-function setupDocumentationNav() {
-  const docLinks = document.querySelectorAll(".doc-nav a");
+// ── Stage Switching & View Modes ──────────────────────────────────
+function setActiveStage(idx) {
+  currentStageIndex = idx;
 
-  docLinks.forEach((link) => {
-    link.addEventListener("click", (e) => {
+  // Update Stepper Cards
+  document.querySelectorAll(".step-card").forEach(c => {
+    const isTarget = parseInt(c.dataset.stage, 10) === idx;
+    c.classList.toggle("active", isTarget);
+    c.setAttribute("aria-selected", String(isTarget));
+  });
+
+  // Update Viewports
+  document.querySelectorAll(".stage-view").forEach(v => {
+    const isTarget = v.id === `stageView-${idx}`;
+    v.classList.toggle("active", isTarget);
+  });
+
+  // If in all-stages mode, scroll to the stage
+  if (currentViewMode === "all") {
+    const target = document.getElementById(`stageView-${idx}`);
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+function setViewMode(mode) {
+  currentViewMode = mode;
+  const container = document.getElementById("pipelineViewsContainer");
+  const focusedBtn = document.getElementById("viewFocusedBtn");
+  const allBtn = document.getElementById("viewAllBtn");
+
+  if (mode === "all") {
+    container?.classList.add("all-stages-mode");
+    allBtn?.classList.add("active");
+    focusedBtn?.classList.remove("active");
+  } else {
+    container?.classList.remove("all-stages-mode");
+    focusedBtn?.classList.add("active");
+    allBtn?.classList.remove("active");
+    setActiveStage(currentStageIndex);
+  }
+}
+
+// Global copy helper for stage action buttons
+window.copyStageContent = function(elementId) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const text = el.innerText || el.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    showToast("Copied to clipboard", "success");
+  }).catch(() => showToast("Copy failed", "error"));
+};
+
+// ── Tab switching ─────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+  document.querySelectorAll(".tab-button").forEach(b => {
+    b.classList.remove("active");
+    b.setAttribute("aria-selected", "false");
+  });
+  document.getElementById(name)?.classList.add("active");
+  const btn = document.querySelector(`.tab-button[data-tab="${name}"]`);
+  if (btn) { btn.classList.add("active"); btn.setAttribute("aria-selected", "true"); }
+}
+
+// ── Documentation sidebar & Dynamic Scrollspy ─────────────────────
+function bindDocNav() {
+  const links = Array.from(document.querySelectorAll(".doc-nav a"));
+  const sections = Array.from(document.querySelectorAll(".doc-section"));
+  if (!links.length || !sections.length) return;
+
+  function setActiveLink(targetId) {
+    links.forEach(l => {
+      const isMatch = l.getAttribute("href") === `#${targetId}`;
+      l.classList.toggle("active", isMatch);
+    });
+  }
+
+  // Click smooth scrolling
+  links.forEach(link => {
+    link.addEventListener("click", e => {
       e.preventDefault();
-      docLinks.forEach((l) => l.classList.remove("active"));
-      link.classList.add("active");
-
-      const targetId = link.getAttribute("href").substring(1);
-      const targetSection = document.getElementById(targetId);
-
-      if (targetSection) {
-        targetSection.scrollIntoView({ behavior: "smooth" });
+      const targetId = link.getAttribute("href").slice(1);
+      const target = document.getElementById(targetId);
+      if (target) {
+        setActiveLink(targetId);
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     });
   });
-}
 
-// Tab switching
-function switchTab(tabName) {
-  document.querySelectorAll(".tab-content").forEach((content) => content.classList.remove("active"));
-  document.querySelectorAll(".tab-button").forEach((button) => button.classList.remove("active"));
-  document.getElementById(tabName).classList.add("active");
-  document.querySelector(`.tab-button[data-tab="${tabName}"]`).classList.add("active");
-}
-
-// Toggle compilation stage visibility
-function toggleStage(stageId) {
-  const content = document.getElementById(stageId);
-  const stage = content.closest(".stage");
-  stage.classList.toggle("collapsed");
-}
-
-// Expand all stages
-function expandAllStages() {
-  document.querySelectorAll(".stage").forEach((stage) => stage.classList.remove("collapsed"));
-}
-
-// Collapse all stages
-function collapseAllStages() {
-  document.querySelectorAll(".stage").forEach((stage) => stage.classList.add("collapsed"));
-}
-
-// Copy code to clipboard
-function copyCode() {
-  const code = codeEditor.getValue();
-  navigator.clipboard.writeText(code)
-    .then(() => {
-      const btn = document.getElementById("copyBtn");
-      const originalText = btn.innerHTML;
-      btn.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-        Copied!
-      `;
-      btn.classList.add("success");
-      setTimeout(() => {
-        btn.innerHTML = originalText;
-        btn.classList.remove("success");
-      }, 2000);
-    })
-    .catch((err) => {
-      console.error("Failed to copy code:", err);
-      showToast("Failed to copy code to clipboard", "error");
+  // Dynamic Scrollspy with IntersectionObserver
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      // Find the topmost intersecting section
+      const visibleEntries = entries.filter(e => e.isIntersecting);
+      if (visibleEntries.length) {
+        visibleEntries.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        setActiveLink(visibleEntries[0].target.id);
+      }
+    }, {
+      root: null,
+      rootMargin: "-80px 0px -50% 0px",
+      threshold: [0, 0.25, 0.5, 0.75, 1.0]
     });
-}
 
-// Show toast notification
-function showToast(message, type = "info") {
-  let toast = document.querySelector(".toast");
-  if (!toast) {
-    toast = document.createElement("div");
-    toast.className = "toast";
-    document.body.appendChild(toast);
+    sections.forEach(sec => observer.observe(sec));
   }
-  toast.textContent = message;
-  toast.className = `toast ${type}`;
-  toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 3000);
+
+  // Secondary window scroll tracking for rapid wheel scrolling
+  window.addEventListener("scroll", () => {
+    const docTab = document.getElementById("documentation");
+    if (!docTab || !docTab.classList.contains("active")) return;
+
+    let currentId = sections[0].id;
+    const scrollPos = window.scrollY + 120;
+
+    for (let i = 0; i < sections.length; i++) {
+      const sec = sections[i];
+      if (sec.offsetTop <= scrollPos) {
+        currentId = sec.id;
+      }
+    }
+    setActiveLink(currentId);
+  }, { passive: true });
 }
 
-// Async delay utility
-const delay = ms => new Promise(res => setTimeout(res, ms));
+// ── Toast ─────────────────────────────────────────────────────────
+function showToast(msg, type = "info") {
+  let t = document.querySelector(".toast");
+  if (!t) { t = document.createElement("div"); t.className = "toast"; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.className   = `toast ${type} show`;
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove("show"), 2800);
+}
 
-// Main compilation and execution function
+// ── Async helpers ─────────────────────────────────────────────────
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+// ── Main compile ──────────────────────────────────────────────────
 async function compileAndRun() {
   const runBtn = document.getElementById("runBtn");
-  const originalText = runBtn.innerHTML;
-
-  runBtn.innerHTML = `<span class="loading"></span> Compiling...`;
+  runBtn.innerHTML = `<span class="spinner"></span> Compiling…`;
   runBtn.disabled = true;
 
-  updateExecutionStatus("Compiling to Source...", "info");
-  
-  // Show UI Bar and reset
-  const pipelineProgress = document.getElementById("pipelineProgress");
-  pipelineProgress.style.display = "flex";
-  document.getElementById("progressBar").style.width = "0%";
+  const dot = document.getElementById("statusPulseDot");
+  const statusText = document.getElementById("pipelineStatusText");
+  if (dot) dot.className = "status-pulse-dot running";
+  if (statusText) statusText.textContent = "Processing";
+
+  // Reset card states
   for (let i = 1; i <= 7; i++) {
-    const node = document.getElementById(`node-${i}`);
-    node.className = "pipeline-node";
+    const card = document.getElementById(`stepCard-${i}`);
+    const stateEl = document.getElementById(`stepState-${i}`);
+    if (card) {
+      card.classList.remove("running", "success", "error");
+    }
+    if (stateEl) stateEl.textContent = "WAIT";
   }
 
   try {
-    const sourceCode = codeEditor.getValue();
-    const inputData = document.getElementById("inputData").value;
+    const source = editor.getValue().trim();
+    const input  = document.getElementById("inputData").value;
+    if (!source) throw new Error("Source code is empty.");
 
-    if (!sourceCode.trim()) throw new Error("Please enter some source code");
-
-    const response = await fetch(`${API_BASE_URL}/api/compile`, {
-      method: "POST",
+    const res = await fetch(`${API_BASE_URL}/api/compile`, {
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source_code: sourceCode, input_data: inputData }),
+      body:    JSON.stringify({ source_code: source, input_data: input }),
     });
 
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const result = await response.json();
-    if (!result.success) throw new Error(result.error || "Compilation failed");
+    if (!res.ok) throw new Error(`HTTP ${res.status} from server.`);
 
-    currentCompilationData = result.data;
-    
-    // Animate successful compilation stages staggeringly!
-    await updateCompilationStagesAnimated(result.data);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "Unknown compilation failure.");
 
-    const executionStage = document.getElementById("execution").closest(".stage");
-    executionStage.classList.remove("collapsed");
-    executionStage.scrollIntoView({ behavior: "smooth" });
+    compilationData = json.data;
+    await animateStages(json.data);
 
-    if (result.data.success) {
-      updateExecutionStatus("Executed Successfully", "success");
-    } else {
-      updateExecutionStatus("Completed with Errors", "warning");
+    if (dot) dot.className = json.data.success ? "status-pulse-dot success" : "status-pulse-dot error";
+    if (statusText) statusText.textContent = json.data.success ? "Completed" : "Diagnostics Alert";
+
+  } catch (err) {
+    console.error(err);
+    if (dot) dot.className = "status-pulse-dot error";
+    if (statusText) statusText.textContent = "Failed";
+
+    const errSection = document.getElementById("errorSection");
+    const errOut     = document.getElementById("errorResult");
+    if (errSection) errSection.style.display = "block";
+    if (errOut) {
+      errOut.textContent = err.message.includes("fetch") || err.message.includes("HTTP")
+        ? `Cannot reach backend at ${API_BASE_URL}\n\nMake sure the local server is running on port 5000.`
+        : err.message;
     }
-  } catch (error) {
-    console.error("Compilation error:", error);
-    updateExecutionStatus("Compilation Failed", "error");
+    setActiveStage(7);
 
-    const errorSection = document.getElementById("errorSection");
-    const errorResult = document.getElementById("errorResult");
-    errorSection.style.display = "block";
-
-    if (error.message.includes("Failed to fetch") || error.message.includes("HTTP error")) {
-      errorResult.textContent = `Connection Error to Backend: ${API_BASE_URL}`;
-    } else {
-      errorResult.textContent = error.message;
-    }
-    
-    // Set error on progress bar
-    document.getElementById("node-1").classList.add("error");
-
-    clearCompilationStages();
   } finally {
-    runBtn.innerHTML = originalText;
+    runBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Run`;
     runBtn.disabled = false;
   }
 }
 
-function updateExecutionStatus(message, type) {
-  const statusElement = document.getElementById("executionStatus");
-  statusElement.textContent = `Status: ${message}`;
-  statusElement.className = type;
-  if (currentCompilationData && currentCompilationData.execution_time) {
-    document.getElementById("executionTime").textContent = `Execution time: ${(currentCompilationData.execution_time * 1000).toFixed(2)}ms`;
+// ── Pipeline Stepper Animation ────────────────────────────────────
+async function animateStages(data) {
+  // Helper to update card state
+  function updateCard(idx, state, metric = null, isRunning = false, isSuccess = false, isError = false) {
+    const card = document.getElementById(`stepCard-${idx}`);
+    const stateEl = document.getElementById(`stepState-${idx}`);
+    const metricEl = document.getElementById(`stepMetric-${idx}`);
+    if (stateEl) stateEl.textContent = state;
+    if (metric && metricEl) metricEl.textContent = metric;
+    if (card) {
+      card.classList.toggle("running", isRunning);
+      card.classList.toggle("success", isSuccess);
+      card.classList.toggle("error", isError);
+    }
   }
-}
 
-// Mark node progress
-function setPipelineProgress(stageIndex, status = "active") {
-    const node = document.getElementById(`node-${stageIndex}`);
-    if (node) node.classList.add(status);
-    
-    const maxStages = 7;
-    const progressPercent = ((stageIndex) / (maxStages - 1)) * 100;
-    document.getElementById("progressBar").style.width = `${progressPercent}%`;
-}
+  // Stage 1: Lexer
+  updateCard(1, "RUN", null, true);
+  setActiveStage(1);
+  await wait(180);
+  const tbody = document.getElementById("tokensTableBody");
+  if (tbody) {
+    tbody.innerHTML = renderTokens(data.tokens);
+  }
+  document.getElementById("tokenCountChip").textContent = `${data.tokens?.length || 0} Tokens`;
+  updateCard(1, "PASS", `${data.tokens?.length || 0} tok`, false, true);
 
-async function typeWriterOutput(element, htmlContent, speed = 2) {
-    element.innerHTML = "";
-    element.classList.add('typewriter');
-    
-    // To support syntax highlighted HTML nodes being typed, we insert directly
-    // since typing raw HTML chars looks bad. We simulate wait.
-    element.innerHTML = htmlContent;
-    
-    // Wait for dramatic effect
-    await delay(300);
-    element.classList.remove('typewriter');
-}
+  // Stage 2: AST
+  updateCard(2, "RUN", null, true);
+  setActiveStage(2);
+  await wait(180);
+  document.getElementById("astOutput").innerHTML = renderAST(data.ast);
+  updateCard(2, "PASS", "Valid", false, true);
 
-// Function to safely encode HTML except for our injected span tags
-function escapeHTML(str) {
-    return str.replace(/[&<>'"]/g, 
-        tag => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            "'": '&#39;',
-            '"': '&quot;'
-        }[tag] || tag)
-    );
-}
+  // Stage 3: Semantic Analysis
+  updateCard(3, "RUN", null, true);
+  setActiveStage(3);
+  await wait(160);
+  const semCard = document.getElementById("semanticCard");
+  const semIcon = document.getElementById("semanticIcon");
+  const semTitle = document.getElementById("semanticTitle");
+  const semSubtitle = document.getElementById("semanticSubtitle");
+  const semOut = document.getElementById("semanticOutput");
 
-// Animated updates
-async function updateCompilationStagesAnimated(data) {
-  // Clear and Collapse everything for dramatic effect
-  collapseAllStages();
-  
-  // 1. Lexical Analysis
-  setPipelineProgress(1, "active");
-  document.getElementById("tokens").closest(".stage").classList.remove("collapsed");
-  await delay(400);
-  const tokenHTML = formatTokensOutput(data.tokens);
-  await typeWriterOutput(document.getElementById("tokensOutput"), tokenHTML);
-  setPipelineProgress(1, "success");
-
-  // 2. AST
-  setPipelineProgress(2, "active");
-  document.getElementById("ast").closest(".stage").classList.remove("collapsed");
-  await delay(300);
-  const astHTML = formatASTOutput(data.ast);
-  await typeWriterOutput(document.getElementById("astOutput"), astHTML);
-  setPipelineProgress(2, "success");
-
-  // 3. Semantic Analysis
-  setPipelineProgress(3, "active");
-  await delay(200);
-  if (data.semantic_errors && data.semantic_errors.length > 0) {
-      document.getElementById("semanticOutput").textContent = `Semantic Errors Found:\n${data.semantic_errors.join("\n")}`;
-      document.getElementById("semanticOutput").classList.add("error-output");
-      setPipelineProgress(3, "error");
+  if (data.semantic_errors?.length) {
+    semCard.classList.add("error");
+    semIcon.textContent = "✕";
+    semTitle.textContent = "Semantic Violations Identified";
+    semSubtitle.textContent = `${data.semantic_errors.length} error(s) prevented target code generation.`;
+    semOut.textContent = data.semantic_errors.join("\n");
+    updateCard(3, "ERR", `${data.semantic_errors.length} err`, false, false, true);
   } else {
-      document.getElementById("semanticOutput").textContent = "No semantic errors found ✓";
-      document.getElementById("semanticOutput").classList.remove("error-output");
-      setPipelineProgress(3, "success");
+    semCard.classList.remove("error");
+    semIcon.textContent = "✓";
+    semTitle.textContent = "Scope & Reference Validation Passed";
+    semSubtitle.textContent = "All identifiers, assignments, and nested blocks are structurally sound.";
+    semOut.textContent = "✓ All symbols resolved successfully in symbol table.\n✓ Scope hierarchy validated.\n✓ Zero undeclared variables.";
+    updateCard(3, "PASS", "0 err", false, true);
   }
 
-  // 4. Intermediate Code
-  setPipelineProgress(4, "active");
-  document.getElementById("intermediate").closest(".stage").classList.remove("collapsed");
-  await delay(200);
-  const intHTML = formatIntermediateOutput(data.intermediate_code);
-  await typeWriterOutput(document.getElementById("intermediateOutput"), intHTML);
-  setPipelineProgress(4, "success");
+  // Stage 4: TAC IR
+  updateCard(4, "RUN", null, true);
+  setActiveStage(4);
+  await wait(160);
+  document.getElementById("intermediateOutput").innerHTML = renderTAC(data.intermediate_code);
+  document.getElementById("tacCountChip").textContent = `${data.intermediate_code?.length || 0} Instructions`;
+  updateCard(4, "PASS", `${data.intermediate_code?.length || 0} TAC`, false, true);
 
-  // 5. Optimization
-  setPipelineProgress(5, "active");
-  document.getElementById("optimization").closest(".stage").classList.remove("collapsed");
-  await delay(300);
-  updateOptimizationOutput(data.optimized_code, data.optimization_log);
-  setPipelineProgress(5, "success");
+  // Stage 5: RL Optimizer
+  updateCard(5, "RUN", null, true);
+  setActiveStage(5);
+  await wait(200);
+  renderOptimisation(data.optimized_code, data.optimization_log, data.intermediate_code);
+  const optCount = data.optimization_log?.length || 0;
+  updateCard(5, "PASS", `${optCount} opts`, false, true);
 
-  // 6. Python Code
-  setPipelineProgress(6, "active");
-  document.getElementById("python").closest(".stage").classList.remove("collapsed");
-  await delay(200);
-  await typeWriterOutput(document.getElementById("pythonOutput"), escapeHTML(data.python_code || "No Python code generated"));
-  setPipelineProgress(6, "success");
+  // Stage 6: Python Code Gen
+  updateCard(6, "RUN", null, true);
+  setActiveStage(6);
+  await wait(160);
+  document.getElementById("pythonOutput").textContent = data.python_code || "# No target Python generated.";
+  updateCard(6, "PASS", "Python 3.10", false, true);
 
-  // 7. Execution Results
-  setPipelineProgress(7, "active");
-  await delay(300);
-  updateExecutionOutput(data.output, data.errors, data.success);
-  setPipelineProgress(7, data.success ? "success" : "error");
+  // Stage 7: Execution Environment
+  updateCard(7, "RUN", null, true);
+  setActiveStage(7);
+  await wait(220);
+  renderExecution(data.output, data.errors, data.success, data.execution_time);
+  const runtimeMs = data.execution_time != null ? `${(data.execution_time * 1000).toFixed(1)}ms` : "Done";
+  updateCard(7, data.success ? "PASS" : "ERR", runtimeMs, false, data.success, !data.success);
 }
 
-function formatTokensOutput(tokens) {
-    if (!tokens || tokens.length === 0) return "No tokens generated";
-    let html = `Type            | Value           | Position\n${"─".repeat(60)}\n`;
-    
-    tokens.forEach(token => {
-        const displayValue = escapeHTML(token.type === "NEWLINE" ? "\\n" : token.value);
-        const displayType = token.type === "RBRACE" ? "RPAREN" : token.type;
-        
-        let colorClass = "token-identifier";
-        if (["KEYWORD", "TYPE", "CONTROL"].includes(displayType)) colorClass = "token-keyword";
-        if (displayType === "NUMBER") colorClass = "token-number";
-        if (displayType === "STRING") colorClass = "token-string";
-        if (["OPERATOR", "ASSIGN"].includes(displayType)) colorClass = "token-operator";
-        
-        html += `${displayType.padEnd(15)} | <span class="${colorClass}">${displayValue.padEnd(15)}</span> | Line ${token.line}, Col ${token.column}\n`;
-    });
-    return html;
+// ── Renderers ─────────────────────────────────────────────────────
+
+function esc(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":'&#39;',
+  }[c]));
 }
 
-function formatASTOutput(ast) {
-    if (!ast) return "No AST generated";
-    // We stringify the JSON but color the keys
-    let str = JSON.stringify(ast, null, 2);
-    str = escapeHTML(str);
-    // Rough regex highlight for JSON AST representation
-    str = str.replace(/"type":\s*&quot;([^&]+)&quot;/g, '"type": &quot;<span class="ast-node">$1</span>&quot;');
-    str = str.replace(/"(value|operation|name)":\s*&quot;([^&]+)&quot;/g, '"$1": &quot;<span class="token-string">$2</span>&quot;');
-    return str;
+// Tabular Lexer Token stream renderer (Clean, simple, unboxed)
+function renderTokens(tokens) {
+  if (!tokens?.length) {
+    return `<tr><td colspan="4" class="empty-state">No tokens found in stream.</td></tr>`;
+  }
+
+  const kwSet = new Set(["PRINT", "SCAN", "WHILE", "IF", "ELSE"]);
+  const opSet = new Set(["PLUS", "MINUS", "MULTIPLY", "DIVIDE", "ASSIGN", "PLUS_ASSIGN", "MINUS_ASSIGN", "MULT_ASSIGN", "DIV_ASSIGN", "EQ", "NEQ", "LT", "GT", "LTE", "GTE", "NOT", "AND", "OR"]);
+  const punctSet = new Set(["SEMICOLON", "LPAREN", "RPAREN", "LBRACE", "RBRACE", "COMMA"]);
+
+  return tokens.map((tok, idx) => {
+    let typeClass = "type-id";
+    if (kwSet.has(tok.type)) {
+      typeClass = "type-kw";
+    } else if (tok.type === "NUMBER") {
+      typeClass = "type-num";
+    } else if (tok.type === "STRING") {
+      typeClass = "type-str";
+    } else if (opSet.has(tok.type) || tok.type.includes("ASSIGN") || tok.type.includes("OP")) {
+      typeClass = "type-op";
+    } else if (punctSet.has(tok.type)) {
+      typeClass = "type-punct";
+    } else if (["NEWLINE", "EOF"].includes(tok.type)) {
+      typeClass = "type-ctrl";
+    }
+
+    const valDisplay = tok.type === "NEWLINE" ? "\\n" : (tok.value === "" ? "—" : esc(tok.value));
+
+    return `<tr>
+      <td class="col-num">${idx + 1}</td>
+      <td class="col-type"><span class="tok-type-text ${typeClass}">${esc(tok.type)}</span></td>
+      <td class="col-val"><span class="tok-val-text">${valDisplay}</span></td>
+      <td class="col-pos">${tok.line}:${tok.column}</td>
+    </tr>`;
+  }).join("");
 }
 
-function formatIntermediateOutput(code) {
-    if (!code || code.length === 0) return "No intermediate code generated";
-    let str = code.join("\n");
-    str = escapeHTML(str);
-    str = str.replace(/([a-zA-Z0-9_]+) =/g, '<span class="token-identifier">$1</span> =');
-    str = str.replace(/GOTO|IF_FALSE|PRINT|SCAN/g, '<span class="token-keyword">$&</span>');
-    str = str.replace(/([0-9.]+)/g, '<span class="token-number">$1</span>');
-    return str;
+function renderAST(ast) {
+  if (!ast) return "No AST generated.";
+  let str = esc(JSON.stringify(ast, null, 2));
+  str = str.replace(/"type":\s*&quot;([^&]+)&quot;/g,
+    '"type": &quot;<span class="ast-node">$1</span>&quot;');
+  return str;
 }
 
-function updateOptimizationOutput(optimizedCode, optimizationLog) {
-  const logElement = document.getElementById("optimizationLog");
-  const codeElement = document.getElementById("optimizedOutput");
+// Token-based TAC syntax highlighter — avoids corrupting injected HTML tags
+function renderTAC(code) {
+  if (!code?.length) return "No IR generated.";
 
-  if (optimizationLog && optimizationLog.length > 0) {
-    logElement.innerHTML = "=== RL Optimization Agent Logs ===<br>" + optimizationLog.join("<br>");
+  const keywords = new Set(["GOTO", "IF_FALSE", "PRINT", "SCAN", "ASSIGN", "LABEL"]);
+
+  return code.map((rawLine, idx) => {
+    const lineNum = `<span class="tac-lineno">${String(idx + 1).padStart(3, '0')}</span> `;
+    const line = esc(rawLine);
+
+    // If it's a label instruction line e.g. "L1:"
+    if (/^[A-Za-z0-9_]+:$/.test(line.trim())) {
+      return lineNum + `<span class="tok-label">${line}</span>`;
+    }
+
+    // Tokenize line cleanly by whitespace, operators, and delimiters
+    const parts = line.split(/(\s+|[=+\-*/><!&|]+|[(),:])/);
+    const formatted = parts.map(part => {
+      if (!part || /^\s+$/.test(part)) return part;
+
+      if (keywords.has(part)) {
+        return `<span class="tok-tac">${part}</span>`;
+      }
+      if (/^-?\d+(\.\d+)?$/.test(part)) {
+        return `<span class="tok-num">${part}</span>`;
+      }
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(part)) {
+        if (/^t\d+$/.test(part)) {
+          return `<span class="tok-temp">${part}</span>`;
+        }
+        if (/^L\d+$/.test(part)) {
+          return `<span class="tok-label">${part}</span>`;
+        }
+        return `<span class="tok-id">${part}</span>`;
+      }
+      if (/^[=+\-*/><!&|]+$/.test(part)) {
+        return `<span class="tok-op">${part}</span>`;
+      }
+      return part;
+    }).join("");
+
+    return lineNum + formatted;
+  }).join("\n");
+}
+
+function renderOptimisation(code, log, origCode) {
+  const logEl  = document.getElementById("optimizationLog");
+  const codeEl = document.getElementById("optimizedOutput");
+  const origLen = origCode?.length || 0;
+  const optLen  = code?.length || 0;
+  const actionsCount = log?.length || 0;
+  const reduction = origLen > 0 ? (((origLen - optLen) / origLen) * 100).toFixed(1) : "0.0";
+
+  document.getElementById("optMetricOrig").textContent = String(origLen);
+  document.getElementById("optMetricOpt").textContent = String(optLen);
+  document.getElementById("optMetricRed").textContent = `${reduction}%`;
+  document.getElementById("optMetricCount").textContent = String(actionsCount);
+  document.getElementById("optActionsChip").textContent = `${actionsCount} Agent Actions`;
+
+  if (log?.length) {
+    const formattedLog = log.map((entry, idx) => {
+      return `[Pass #${String(idx + 1).padStart(2, '0')}] ${esc(entry)}`;
+    }).join("\n");
+    logEl.textContent = formattedLog;
   } else {
-    logElement.innerHTML = "No optimizations applied by Agent";
+    logEl.textContent = "✓ No optimisations needed (intermediate code already optimal).";
   }
 
-  if (optimizedCode && optimizedCode.length > 0) {
-    const intHTML = formatIntermediateOutput(optimizedCode);
-    codeElement.innerHTML = intHTML;
+  codeEl.innerHTML = code?.length ? renderTAC(code) : "No optimised IR.";
+}
+
+function renderExecution(output, errors, success, execTime) {
+  const outEl = document.getElementById("outputResult");
+  const errSec = document.getElementById("errorSection");
+  const errEl  = document.getElementById("errorResult");
+  const exitTag = document.getElementById("terminalExitTag");
+  const timeChip = document.getElementById("executionTimeChip");
+  const statusChip = document.getElementById("executionStatusChip");
+
+  const formattedTime = execTime != null ? `${(execTime * 1000).toFixed(1)} ms` : "0.0 ms";
+  if (timeChip) timeChip.textContent = formattedTime;
+  if (statusChip) statusChip.textContent = success ? "Success (0)" : "Error";
+
+  if (exitTag) {
+    exitTag.textContent = success ? "EXIT 0" : "EXIT 1";
+    exitTag.classList.toggle("error", !success);
+  }
+
+  outEl.textContent = output?.trim() || "(Process finished with no standard output)";
+
+  if (errors?.trim()) {
+    errSec.style.display = "block";
+    errEl.textContent = errors.trim();
   } else {
-    codeElement.textContent = "No optimized code generated";
+    errSec.style.display = "none";
   }
 }
 
-function updateExecutionOutput(output, errors, success) {
-  const outputElement = document.getElementById("outputResult");
-  const errorElement = document.getElementById("errorResult");
-  const errorSection = document.getElementById("errorSection");
+// ── Clear all stage outputs ───────────────────────────────────────
+function clearStages() {
+  const tokensBody = document.getElementById("tokensTableBody");
+  if (tokensBody) {
+    tokensBody.innerHTML = `<tr><td colspan="4" class="empty-state">Run pipeline to inspect lexical token stream…</td></tr>`;
+  }
+  document.getElementById("astOutput").textContent = "Run pipeline to view parsed AST hierarchy…";
+  document.getElementById("semanticOutput").textContent = "Run pipeline to run semantic validation…";
+  document.getElementById("intermediateOutput").textContent = "Run pipeline to generate Three-Address Code…";
+  document.getElementById("optimizationLog").textContent = "Run pipeline to inspect agent policy actions…";
+  document.getElementById("optimizedOutput").textContent = "Optimized IR will display here…";
+  document.getElementById("pythonOutput").textContent = "Run pipeline to generate executable Python…";
+  document.getElementById("outputResult").textContent = "Ready. Press 'Run' (Ctrl+Enter) to compile and execute.";
 
-  if (output) {
-    // Add typewriter effect
-    outputElement.classList.add('success');
-    outputElement.textContent = output;
-  } else {
-    outputElement.textContent = "No output generated";
+  for (let i = 1; i <= 7; i++) {
+    const card = document.getElementById(`stepCard-${i}`);
+    const state = document.getElementById(`stepState-${i}`);
+    const metric = document.getElementById(`stepMetric-${i}`);
+    if (card) card.classList.remove("running", "success", "error");
+    if (state) state.textContent = "IDLE";
+    if (metric) metric.textContent = "—";
   }
 
-  if (errors && errors.trim()) {
-    errorSection.style.display = "block";
-    errorElement.textContent = errors;
-  } else {
-    errorSection.style.display = "none";
-  }
+  const dot = document.getElementById("statusPulseDot");
+  const statusText = document.getElementById("pipelineStatusText");
+  if (dot) dot.className = "status-pulse-dot";
+  if (statusText) statusText.textContent = "Ready";
+
+  const errSection = document.getElementById("errorSection");
+  if (errSection) errSection.style.display = "none";
+
+  setActiveStage(7);
 }
 
-function clearCompilationStages() {
-  document.getElementById("tokensOutput").textContent = "Run compilation to see tokens...";
-  document.getElementById("astOutput").textContent = "Run compilation to see AST...";
-  document.getElementById("semanticOutput").textContent = "Run compilation to see semantic analysis...";
-  document.getElementById("intermediateOutput").textContent = "Run compilation to see intermediate code...";
-  document.getElementById("optimizationLog").textContent = "Run compilation to see optimization log...";
-  document.getElementById("optimizedOutput").textContent = "Optimized code will appear here...";
-  document.getElementById("pythonOutput").textContent = "Run compilation to see generated Python code...";
-  document.getElementById("outputResult").textContent = "Run compilation to see output...";
-  document.getElementById("executionTime").textContent = "Execution time: --";
-  document.getElementById("pipelineProgress").style.display = "none";
-}
-
+// ── Comment toggle (Ctrl+/) ───────────────────────────────────────
 function toggleComment() {
-  const cursor = codeEditor.getCursor();
-  const line = codeEditor.getLine(cursor.line);
-
+  if (!editor) return;
+  const cursor = editor.getCursor();
+  const line   = editor.getLine(cursor.line);
   if (line.trim().startsWith("//")) {
-    const newLine = line.replace(/^\s*\/\/\s?/, "");
-    codeEditor.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
+    editor.replaceRange(line.replace(/^\s*\/\/\s?/, ""),
+      { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
   } else {
-    const indentMatch = line.match(/^(\s*)/);
-    const indent = indentMatch ? indentMatch[1] : "";
-    const newLine = indent + "// " + line.trim();
-    codeEditor.replaceRange(newLine, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
+    const indent = (line.match(/^(\s*)/) || ["",""])[1];
+    editor.replaceRange(`${indent}// ${line.trim()}`,
+      { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
   }
 }

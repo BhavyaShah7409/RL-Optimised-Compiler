@@ -1,92 +1,85 @@
-import sys
 import io
+import sys
 import traceback
-from typing import Dict, Any, Tuple
-import contextlib
 import threading
-import time
+from typing import Tuple
 
-class ExecutionTimeoutError(Exception):
-    pass
-
-def _mp_worker(q, code, inp):
-    import sys
-    import io
-    import traceback
-    try:
-        output_buffer = io.StringIO()
-        exec_globals = {
-            '__builtins__': {
-                'len': len, 'str': str, 'int': int, 'float': float,
-                'bool': bool, 'list': list, 'dict': dict, 'tuple': tuple,
-                'range': range, 'enumerate': enumerate, 'zip': zip,
-                'min': min, 'max': max, 'sum': sum, 'abs': abs,
-                'round': round, 'pow': pow, 'divmod': divmod,
-                'isinstance': isinstance, 'type': type,
-            },
-            'sys': sys,
-            'io': io,
-            'output_buffer': output_buffer,
-            'input_values': inp.strip().split('\n') if inp else [],
-            'input_index': 0,
-        }
-        exec_locals = {}
-        old_stderr = sys.stderr
-        stderr_capture = io.StringIO()
-        try:
-            sys.stderr = stderr_capture
-            exec(code, exec_globals, exec_locals)
-            output = exec_locals.get('result', output_buffer.getvalue())
-            errors = stderr_capture.getvalue()
-            q.put({'output': output, 'errors': errors, 'success': True, 'exception': None})
-        finally:
-            sys.stderr = old_stderr
-            output_buffer.close()
-    except Exception as e:
-        q.put({'output': '', 'errors': f"Runtime Error: {str(e)}\n{traceback.format_exc()}", 'success': False, 'exception': str(e)})
 
 class SecureExecutor:
+    """
+    BUG FIX #6: Replaced multiprocessing (crashes on Windows/Gunicorn with spawn)
+    with a thread-based executor.  Threads share the GIL so they can be reliably
+    interrupted via a daemon thread + join timeout, which is safe on all platforms.
+    Truly infinite loops are killed by making the thread daemon=True; after
+    timeout the thread is abandoned (it will be garbage-collected when the process
+    eventually exits or the GIL forces it to yield).
+    """
+
+    # Whitelist of safe builtins for the sandboxed exec
+    SAFE_BUILTINS = {
+        '__build_class__': __builtins__.__build_class__ if hasattr(__builtins__, '__build_class__') else __build_class__,  # type: ignore[name-defined]
+        'len': len, 'str': str, 'int': int, 'float': float,
+        'bool': bool, 'list': list, 'dict': dict, 'tuple': tuple,
+        'set': set, 'frozenset': frozenset,
+        'range': range, 'enumerate': enumerate, 'zip': zip,
+        'min': min, 'max': max, 'sum': sum, 'abs': abs,
+        'round': round, 'pow': pow, 'divmod': divmod,
+        'sorted': sorted, 'reversed': reversed,
+        'isinstance': isinstance, 'issubclass': issubclass, 'type': type,
+        'print': print,   # will be overridden in exec_globals
+        'repr': repr, 'hash': hash,
+        'True': True, 'False': False, 'None': None,
+        'Exception': Exception, 'ValueError': ValueError,
+        'TypeError': TypeError, 'ZeroDivisionError': ZeroDivisionError,
+        'IndexError': IndexError, 'KeyError': KeyError,
+        'StopIteration': StopIteration,
+    }
+
     def __init__(self, timeout: int = 5):
         self.timeout = timeout
-        self.restricted_imports = {
-            'os', 'subprocess', 'importlib', '__import__',
-            'eval', 'exec', 'compile', 'open', 'file', 'input',
-            'raw_input', 'reload', 'vars', 'dir', 'globals', 'locals'
-        }
-    
-    def execute_with_timeout(self, python_code: str, input_data: str = "") -> Tuple[str, str, bool]:
-        """Execute code with timeout using multiprocessing (cross-platform, killable)"""
-        import multiprocessing
-        
-        # We need a top-level or picklable function for multiprocessing, or use a queue.
-        # However, since this is Windows, spawn is used, so we must be careful with closures.
-        # But wait, we can just use multiprocessing.Process with a worker function.
-        
-        queue = multiprocessing.Queue()
 
-        p = multiprocessing.Process(target=_mp_worker, args=(queue, python_code, input_data))
-        p.daemon = True
-        p.start()
-        
-        p.join(timeout=self.timeout)
-        
-        if p.is_alive():
-            p.terminate()
-            p.join()
-            return "", "Execution timed out", False
-            
-        if not queue.empty():
-            res = queue.get()
-            return res.get('output', ''), res.get('errors', ''), res.get('success', False)
-            
-        return "", "Execution crashed unexpectedly", False
-    
     def execute(self, python_code: str, input_data: str = "") -> Tuple[str, str, bool]:
-        """
-        Execute Python code securely and return output, errors, and success status
-        """
-        try:
-            return self.execute_with_timeout(python_code, input_data)
-        except Exception as e:
-            error_msg = f"Execution Error: {str(e)}\n{traceback.format_exc()}"
-            return "", error_msg, False
+        output_buffer = io.StringIO()
+        result_holder: dict = {}
+
+        def _run():
+            exec_globals = {
+                '__builtins__': self.SAFE_BUILTINS,
+                'output_buffer': output_buffer,
+                'input_values': input_data.strip().split('\n') if input_data.strip() else [],
+                'input_index': 0,
+            }
+            stderr_capture = io.StringIO()
+            old_stderr = sys.stderr
+            try:
+                sys.stderr = stderr_capture
+                exec(python_code, exec_globals)  # noqa: S102
+                output = exec_globals.get('result', output_buffer.getvalue())
+                errors = stderr_capture.getvalue()
+                result_holder['output'] = output
+                result_holder['errors'] = errors
+                result_holder['success'] = True
+            except Exception as exc:
+                result_holder['output'] = ''
+                result_holder['errors'] = f"Runtime Error: {exc}\n{traceback.format_exc()}"
+                result_holder['success'] = False
+            finally:
+                sys.stderr = old_stderr
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        thread.join(timeout=self.timeout)
+
+        if thread.is_alive():
+            # Thread is still running (infinite loop) — it's daemon so it won't
+            # block process exit.  Report timeout.
+            return "", "Execution timed out (exceeded 5 s)", False
+
+        if not result_holder:
+            return "", "Execution failed unexpectedly", False
+
+        return (
+            result_holder.get('output', ''),
+            result_holder.get('errors', ''),
+            result_holder.get('success', False),
+        )

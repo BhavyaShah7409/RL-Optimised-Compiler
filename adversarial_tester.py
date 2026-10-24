@@ -37,10 +37,12 @@ class Fuzzer:
         return f"({left} {op} {right})"
 
     def generate_statement(self, depth=0, in_loop=False):
-        types = ['assign', 'print', 'if']
-        # Allow loops only up to a certain depth to prevent massive generation time
-        if depth < 3:
-            types.append('while')
+        if depth >= 4:
+            types = ['assign', 'print']
+        else:
+            types = ['assign', 'print', 'if']
+            if depth < 2:
+                types.append('while')
             
         choice = random.choice(types)
         

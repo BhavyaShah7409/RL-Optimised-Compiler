@@ -3,13 +3,20 @@ from flask_cors import CORS
 import os
 from .compiler import SourceToSourceCompiler
 
-app = Flask(__name__)
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+app = Flask(__name__, static_folder=PROJECT_ROOT, static_url_path='')
 CORS(app, origins=["*"])
 
 # Initialize compiler
 compiler = SourceToSourceCompiler()
 
 @app.route('/')
+def index():
+    return send_from_directory(PROJECT_ROOT, 'index.html')
+
+@app.route('/health')
+@app.route('/api/health')
 def health_check():
     return jsonify({
         'status': 'healthy',
