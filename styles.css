@@ -871,6 +871,246 @@ p { color: var(--ink-muted); margin-bottom: .75rem; }
 :root[data-theme="dark"] .tok-tac    { color: #fbbf24; }
 :root[data-theme="dark"] .ast-node   { color: #c084fc; }
 
+/* ─── AST Stage Controls & Interactive Tree ─────────────────── */
+.ast-zoom-btn-group {
+  display: inline-flex;
+  align-items: center;
+  background: var(--paper-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 1px;
+  gap: 1px;
+}
+
+.ast-zoom-btn-group .btn-icon {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ast-zoom-btn-group .btn-sm {
+  padding: 0 .4rem;
+  font-family: var(--font-mono);
+  font-size: .68rem;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-faint);
+}
+
+.ast-zoom-btn-group .btn-sm:hover {
+  color: var(--ink);
+}
+
+.stage-body-ast {
+  position: relative;
+  min-height: 480px;
+  padding: .75rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.ast-tree-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 460px;
+  height: 100%;
+  background: var(--paper-3);
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 20px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r2);
+  overflow: hidden;
+  user-select: none;
+  cursor: grab;
+  transition: border-color var(--t1);
+}
+
+.ast-tree-wrapper:hover {
+  border-color: var(--ink-muted);
+}
+
+.ast-tree-wrapper.is-panning {
+  cursor: grabbing !important;
+}
+
+.ast-canvas-overlay-hints {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 10;
+  pointer-events: none;
+  transition: opacity var(--t2);
+}
+
+.ast-hint-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-ui);
+  font-size: .68rem;
+  font-weight: 500;
+  color: var(--ink-faint);
+  background: var(--paper);
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  box-shadow: var(--sh-sm);
+  opacity: 0.9;
+}
+
+.ast-empty-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  color: var(--ink-faint);
+  font-family: var(--font-ui);
+  font-size: .82rem;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.ast-empty-icon {
+  opacity: 0.5;
+  color: var(--ink-faint);
+}
+
+.ast-empty-overlay.hidden {
+  display: none !important;
+}
+
+.ast-tree-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 460px;
+}
+
+.ast-tree-viewport {
+  transform-origin: 0 0;
+}
+
+/* Bezier Links & Edge Labels */
+.ast-tree-link {
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.5px;
+  stroke-opacity: 0.45;
+  transition: stroke var(--t1), stroke-opacity var(--t1);
+}
+
+.ast-tree-link:hover {
+  stroke: var(--ink);
+  stroke-opacity: 0.9;
+  stroke-width: 2px;
+}
+
+.ast-edge-rect {
+  fill: var(--paper-2);
+  stroke: var(--line);
+  stroke-width: 1px;
+}
+
+.ast-edge-text {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  fill: var(--ink-faint);
+  font-weight: 500;
+  text-anchor: middle;
+  dominant-baseline: central;
+  user-select: none;
+}
+
+/* Node Cards */
+.ast-node-group {
+  cursor: pointer;
+  transition: opacity var(--t1);
+}
+
+.ast-node-card-bg {
+  fill: var(--paper);
+  stroke: var(--line);
+  stroke-width: 1.2px;
+  rx: 7px;
+  ry: 7px;
+  transition: stroke var(--t1), filter var(--t1), fill var(--t1);
+}
+
+.ast-node-group:hover .ast-node-card-bg {
+  stroke: var(--ink);
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.12));
+}
+
+.ast-badge-bg {
+  rx: 4px;
+  ry: 4px;
+}
+
+.ast-badge-text {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  dominant-baseline: central;
+}
+
+.ast-node-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--ink);
+  dominant-baseline: central;
+}
+
+.ast-node-sub {
+  font-family: var(--font-ui);
+  font-size: 9.5px;
+  fill: var(--ink-faint);
+  dominant-baseline: central;
+}
+
+/* Category Colors */
+/* Program Root */
+.cat-program .ast-badge-bg { fill: rgba(99, 102, 241, 0.12); }
+.cat-program .ast-badge-text { fill: #4f46e5; }
+.cat-program .ast-node-card-bg { stroke: rgba(99, 102, 241, 0.4); }
+:root[data-theme="dark"] .cat-program .ast-badge-text { fill: #818cf8; }
+:root[data-theme="dark"] .cat-program .ast-badge-bg { fill: rgba(99, 102, 241, 0.22); }
+:root[data-theme="dark"] .cat-program .ast-node-card-bg { stroke: rgba(99, 102, 241, 0.5); }
+
+/* Statements (While, If, Assign, Print, Scan) */
+.cat-stmt .ast-badge-bg { fill: rgba(2, 132, 199, 0.12); }
+.cat-stmt .ast-badge-text { fill: #0284c7; }
+.cat-stmt .ast-node-card-bg { stroke: rgba(2, 132, 199, 0.35); }
+:root[data-theme="dark"] .cat-stmt .ast-badge-text { fill: #38bdf8; }
+:root[data-theme="dark"] .cat-stmt .ast-badge-bg { fill: rgba(56, 189, 248, 0.2); }
+:root[data-theme="dark"] .cat-stmt .ast-node-card-bg { stroke: rgba(56, 189, 248, 0.45); }
+
+/* Expressions (BinOp, UnaryOp) */
+.cat-expr .ast-badge-bg { fill: rgba(217, 119, 6, 0.12); }
+.cat-expr .ast-badge-text { fill: #d97706; }
+.cat-expr .ast-node-card-bg { stroke: rgba(217, 119, 6, 0.35); }
+:root[data-theme="dark"] .cat-expr .ast-badge-text { fill: #fbbf24; }
+:root[data-theme="dark"] .cat-expr .ast-badge-bg { fill: rgba(251, 191, 36, 0.2); }
+:root[data-theme="dark"] .cat-expr .ast-node-card-bg { stroke: rgba(251, 191, 36, 0.45); }
+
+/* Leaves / Terminals (Identifier, NumberLiteral, StringLiteral) */
+.cat-leaf .ast-badge-bg { fill: rgba(22, 163, 74, 0.12); }
+.cat-leaf .ast-badge-text { fill: #16a34a; }
+.cat-leaf .ast-node-card-bg { stroke: rgba(22, 163, 74, 0.35); }
+:root[data-theme="dark"] .cat-leaf .ast-badge-text { fill: #4ade80; }
+:root[data-theme="dark"] .cat-leaf .ast-badge-bg { fill: rgba(74, 222, 128, 0.2); }
+:root[data-theme="dark"] .cat-leaf .ast-node-card-bg { stroke: rgba(74, 222, 128, 0.45); }
+
+
 /* ─── Semantic Validation Card ──────────────────────────────── */
 .semantic-status-card {
   display: flex;

@@ -132,6 +132,15 @@ function bindEvents() {
     if (e.altKey && e.key === "ArrowLeft")             { e.preventDefault(); if (currentStageIndex > 1) setActiveStage(currentStageIndex - 1); }
     if (e.altKey && e.key === "ArrowRight")            { e.preventDefault(); if (currentStageIndex < 7) setActiveStage(currentStageIndex + 1); }
   });
+
+  // Bind interactive AST Tree zoom/pan controls
+  bindAstTreeEvents();
+
+  window.addEventListener("resize", () => {
+    if (currentStageIndex === 2 && currentAstRaw && astViewMode === "tree") {
+      fitAstTreeToScreen();
+    }
+  });
 }
 
 // ── Stage Switching & View Modes ──────────────────────────────────
@@ -150,6 +159,11 @@ function setActiveStage(idx) {
     const isTarget = v.id === `stageView-${idx}`;
     v.classList.toggle("active", isTarget);
   });
+
+  // If entering AST stage, ensure tree fits viewport nicely
+  if (idx === 2 && currentAstRaw && astViewMode === "tree") {
+    requestAnimationFrame(() => fitAstTreeToScreen());
+  }
 
   // If in all-stages mode, scroll to the stage
   if (currentViewMode === "all") {
@@ -474,12 +488,462 @@ function renderTokens(tokens) {
   }).join("");
 }
 
+// ── Interactive AST Tree State & Logic ─────────────────────────────
+let astZoom = 1.0;
+let astPanX = 0;
+let astPanY = 0;
+let isAstPanning = false;
+let astStartPan = { x: 0, y: 0 };
+let astTreeBounds = null;
+let currentAstRaw = null;
+let astViewMode = "tree"; // "tree" | "json"
+
+function buildAstTreeNode(node, edgeLabel = "") {
+  if (!node) return null;
+  const t = node.type || "Node";
+  let badge = "NODE", name = t, sub = "", category = "cat-stmt", children = [];
+
+  if (t === "Program") {
+    badge = "ROOT";
+    name = "Program";
+    const stmtCount = (node.statements || []).length;
+    sub = `${stmtCount} stmt${stmtCount === 1 ? '' : 's'}`;
+    category = "cat-program";
+    children = (node.statements || []).map((s, i) => buildAstTreeNode(s, `stmt[${i + 1}]`));
+  } else if (t === "AssignmentStatement") {
+    badge = "ASSIGN";
+    name = `${node.target} ${node.operator || '='}`;
+    category = "cat-stmt";
+    if (node.value) children.push(buildAstTreeNode(node.value, "val"));
+  } else if (t === "WhileStatement") {
+    badge = "WHILE";
+    name = "while (...)";
+    category = "cat-stmt";
+    if (node.condition) children.push(buildAstTreeNode(node.condition, "cond"));
+    (node.body || []).forEach((s, i) => children.push(buildAstTreeNode(s, `body[${i + 1}]`)));
+  } else if (t === "IfStatement") {
+    badge = "IF";
+    name = "if (...)";
+    category = "cat-stmt";
+    if (node.condition) children.push(buildAstTreeNode(node.condition, "cond"));
+    (node.then_body || []).forEach((s, i) => children.push(buildAstTreeNode(s, `then[${i + 1}]`)));
+    if (node.else_body && node.else_body.length) {
+      node.else_body.forEach((s, i) => children.push(buildAstTreeNode(s, `else[${i + 1}]`)));
+    }
+  } else if (t === "PrintStatement") {
+    badge = "PRINT";
+    name = "print(...)";
+    category = "cat-stmt";
+    if (node.expression) children.push(buildAstTreeNode(node.expression, "expr"));
+  } else if (t === "ScanStatement") {
+    badge = "SCAN";
+    name = `scan(${node.target})`;
+    category = "cat-stmt";
+  } else if (t === "BinaryOperation") {
+    badge = "BIN_OP";
+    name = `Op: ${node.operator}`;
+    category = "cat-expr";
+    if (node.left) children.push(buildAstTreeNode(node.left, "left"));
+    if (node.right) children.push(buildAstTreeNode(node.right, "right"));
+  } else if (t === "UnaryOperation") {
+    badge = "UN_OP";
+    name = `Op: ${node.operator}`;
+    category = "cat-expr";
+    if (node.operand) children.push(buildAstTreeNode(node.operand, "operand"));
+  } else if (t === "NumberLiteral") {
+    badge = "NUM";
+    let numVal = node.value;
+    if (typeof numVal === "number" && Number.isInteger(numVal)) {
+      numVal = String(numVal);
+    } else {
+      numVal = String(numVal);
+    }
+    name = numVal;
+    category = "cat-leaf";
+  } else if (t === "StringLiteral") {
+    badge = "STR";
+    name = `"${node.value}"`;
+    category = "cat-leaf";
+  } else if (t === "Identifier") {
+    badge = "ID";
+    name = String(node.name || "");
+    category = "cat-leaf";
+  } else {
+    badge = t.slice(0, 6).toUpperCase();
+    name = t;
+    category = "cat-stmt";
+    for (const key of Object.keys(node)) {
+      if (key !== "type" && typeof node[key] === "object" && node[key] !== null) {
+        if (Array.isArray(node[key])) {
+          node[key].forEach((item, i) => {
+            if (item && typeof item === "object") children.push(buildAstTreeNode(item, `${key}[${i + 1}]`));
+          });
+        } else {
+          children.push(buildAstTreeNode(node[key], key));
+        }
+      }
+    }
+  }
+
+  return {
+    type: t,
+    badge,
+    name,
+    sub,
+    category,
+    edgeLabel,
+    children: children.filter(Boolean)
+  };
+}
+
+function layoutTree(root) {
+  const NODE_W = 144;
+  const GAP_X = 26;
+  const GAP_Y = 96;
+
+  function calcSubtreeWidth(node) {
+    if (!node.children || node.children.length === 0) {
+      node.subtreeWidth = NODE_W;
+      return;
+    }
+    let total = 0;
+    node.children.forEach(c => {
+      calcSubtreeWidth(c);
+      total += c.subtreeWidth;
+    });
+    total += (node.children.length - 1) * GAP_X;
+    node.subtreeWidth = Math.max(NODE_W, total);
+  }
+  calcSubtreeWidth(root);
+
+  function assignCoords(node, leftX, depth) {
+    node.depth = depth;
+    node.y = depth * GAP_Y + 40;
+    if (!node.children || node.children.length === 0) {
+      node.x = leftX + (node.subtreeWidth - NODE_W) / 2;
+      return;
+    }
+    let curX = leftX;
+    node.children.forEach(c => {
+      assignCoords(c, curX, depth + 1);
+      curX += c.subtreeWidth + GAP_X;
+    });
+    const firstChildX = node.children[0].x;
+    const lastChildX = node.children[node.children.length - 1].x;
+    node.x = (firstChildX + lastChildX) / 2;
+  }
+  assignCoords(root, 40, 0);
+}
+
+function getTreeBoundsAndStats(root) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let nodeCount = 0, maxDepth = 0;
+
+  function traverse(n) {
+    nodeCount++;
+    if (n.depth > maxDepth) maxDepth = n.depth;
+    minX = Math.min(minX, n.x);
+    maxX = Math.max(maxX, n.x + 144);
+    minY = Math.min(minY, n.y);
+    maxY = Math.max(maxY, n.y + 50);
+    (n.children || []).forEach(traverse);
+  }
+  traverse(root);
+
+  return {
+    minX, maxX, minY, maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+    nodeCount,
+    maxDepth: maxDepth + 1
+  };
+}
+
+function renderTreeLinks(node, svgLinksArr) {
+  const NODE_W = 144;
+  const NODE_H = 50;
+  const px = node.x + NODE_W / 2;
+  const py = node.y + NODE_H;
+
+  (node.children || []).forEach(child => {
+    const cx = child.x + NODE_W / 2;
+    const cy = child.y;
+    const midY = (py + cy) / 2;
+    const d = `M ${px} ${py} C ${px} ${midY}, ${cx} ${midY}, ${cx} ${cy}`;
+
+    let labelHtml = "";
+    if (child.edgeLabel) {
+      const lx = (px + cx) / 2;
+      const ly = midY;
+      const lw = Math.max(34, child.edgeLabel.length * 6.5 + 10);
+      labelHtml = `
+        <g class="ast-edge-group">
+          <rect class="ast-edge-rect" x="${lx - lw/2}" y="${ly - 9}" width="${lw}" height="18" rx="4" ry="4"></rect>
+          <text class="ast-edge-text" x="${lx}" y="${ly}">${esc(child.edgeLabel)}</text>
+        </g>
+      `;
+    }
+
+    svgLinksArr.push(`
+      <g class="ast-link-group">
+        <path class="ast-tree-link" d="${d}" />
+        ${labelHtml}
+      </g>
+    `);
+
+    renderTreeLinks(child, svgLinksArr);
+  });
+}
+
+function renderNodeCards(node, svgNodesArr) {
+  const NODE_W = 144;
+  const NODE_H = 50;
+  const x = node.x;
+  const y = node.y;
+
+  let displayName = node.name;
+  if (displayName.length > 15) {
+    displayName = displayName.slice(0, 14) + "…";
+  }
+
+  const badgeText = node.badge || "NODE";
+  const badgeW = Math.max(34, badgeText.length * 6.5 + 10);
+
+  svgNodesArr.push(`
+    <g class="ast-node-group ${node.category}" transform="translate(${x}, ${y})" data-title="${esc(node.name)}" data-type="${esc(node.type)}">
+      <rect class="ast-node-card-bg" x="0" y="0" width="${NODE_W}" height="${NODE_H}" rx="7" ry="7"></rect>
+      <g transform="translate(10, 8)">
+        <rect class="ast-badge-bg" x="0" y="0" width="${badgeW}" height="15" rx="3.5" ry="3.5"></rect>
+        <text class="ast-badge-text" x="${badgeW / 2}" y="8" text-anchor="middle">${esc(badgeText)}</text>
+      </g>
+      ${node.sub ? `<text class="ast-node-sub" x="${NODE_W - 10}" y="15" text-anchor="end">${esc(node.sub)}</text>` : ''}
+      <text class="ast-node-title" x="10" y="34">${esc(displayName)}</text>
+      <title>${esc(node.type)}: ${esc(node.name)}</title>
+    </g>
+  `);
+
+  (node.children || []).forEach(child => renderNodeCards(child, svgNodesArr));
+}
+
 function renderAST(ast) {
-  if (!ast) return "No AST generated.";
+  currentAstRaw = ast;
+  const jsonEl = document.getElementById("astOutput");
+  const emptyEl = document.getElementById("astEmptyState");
+  const viewport = document.getElementById("astTreeViewport");
+  const chip = document.getElementById("astDepthChip");
+
+  if (!ast) {
+    if (jsonEl) jsonEl.textContent = "No AST generated.";
+    if (emptyEl) emptyEl.classList.remove("hidden");
+    if (viewport) viewport.innerHTML = "";
+    if (chip) chip.textContent = "0 Nodes";
+    astTreeBounds = null;
+    return "No AST generated.";
+  }
+
+  // 1. Format raw JSON for the JSON view tab
   let str = esc(JSON.stringify(ast, null, 2));
   str = str.replace(/"type":\s*&quot;([^&]+)&quot;/g,
     '"type": &quot;<span class="ast-node">$1</span>&quot;');
+  if (jsonEl) jsonEl.innerHTML = str;
+
+  // 2. Hide empty state placeholder
+  if (emptyEl) emptyEl.classList.add("hidden");
+
+  // 3. Build tree and run layout
+  const treeRoot = buildAstTreeNode(ast);
+  if (!treeRoot) return str;
+
+  layoutTree(treeRoot);
+
+  const stats = getTreeBoundsAndStats(treeRoot);
+  astTreeBounds = stats;
+
+  if (chip) {
+    chip.textContent = `${stats.nodeCount} Nodes • Depth ${stats.maxDepth}`;
+  }
+
+  // 4. Render SVG links and node cards
+  const linksArr = [];
+  const nodesArr = [];
+  renderTreeLinks(treeRoot, linksArr);
+  renderNodeCards(treeRoot, nodesArr);
+
+  if (viewport) {
+    viewport.innerHTML = `
+      <g class="ast-links-layer">${linksArr.join("")}</g>
+      <g class="ast-nodes-layer">${nodesArr.join("")}</g>
+    `;
+  }
+
+  // 5. Fit to screen automatically
+  requestAnimationFrame(() => {
+    fitAstTreeToScreen();
+  });
+
   return str;
+}
+
+function applyAstTransform(animate = false) {
+  const viewport = document.getElementById("astTreeViewport");
+  const zoomText = document.getElementById("astZoomLevelText");
+  if (viewport) {
+    viewport.style.transition = animate ? "transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)" : "none";
+    viewport.setAttribute("transform", `translate(${astPanX}, ${astPanY}) scale(${astZoom})`);
+  }
+  if (zoomText) {
+    zoomText.textContent = `${Math.round(astZoom * 100)}%`;
+  }
+}
+
+function zoomAst(factor, clientX, clientY) {
+  const wrapper = document.getElementById("astTreeWrapper");
+  if (!wrapper) return;
+  const rect = wrapper.getBoundingClientRect();
+  const cx = clientX !== undefined ? clientX - rect.left : wrapper.clientWidth / 2;
+  const cy = clientY !== undefined ? clientY - rect.top : wrapper.clientHeight / 2;
+
+  const newZoom = Math.max(0.12, Math.min(3.5, astZoom * factor));
+  if (newZoom === astZoom) return;
+
+  // Zoom centered at (cx, cy)
+  astPanX = cx - (cx - astPanX) * (newZoom / astZoom);
+  astPanY = cy - (cy - astPanY) * (newZoom / astZoom);
+  astZoom = newZoom;
+  applyAstTransform();
+}
+
+function fitAstTreeToScreen() {
+  const wrapper = document.getElementById("astTreeWrapper");
+  if (!wrapper || !astTreeBounds || astTreeBounds.width === 0) return;
+
+  const containerW = wrapper.clientWidth || 600;
+  const containerH = wrapper.clientHeight || 460;
+  const padding = 45;
+
+  const scaleX = (containerW - padding * 2) / astTreeBounds.width;
+  const scaleY = (containerH - padding * 2) / astTreeBounds.height;
+  let targetScale = Math.min(scaleX, scaleY);
+
+  targetScale = Math.max(0.15, Math.min(1.05, targetScale));
+
+  astZoom = targetScale;
+  astPanX = (containerW - astTreeBounds.width * astZoom) / 2 - astTreeBounds.minX * astZoom;
+  astPanY = (containerH - astTreeBounds.height * astZoom) / 2 - astTreeBounds.minY * astZoom;
+
+  applyAstTransform(true);
+}
+
+function resetAstZoom() {
+  const wrapper = document.getElementById("astTreeWrapper");
+  if (!wrapper) return;
+  astZoom = 1.0;
+  if (astTreeBounds) {
+    astPanX = (wrapper.clientWidth - astTreeBounds.width) / 2 - astTreeBounds.minX;
+    astPanY = 40 - astTreeBounds.minY;
+  } else {
+    astPanX = 0;
+    astPanY = 0;
+  }
+  applyAstTransform(true);
+}
+
+function setAstViewMode(mode) {
+  astViewMode = mode;
+  const treeBtn = document.getElementById("astViewTreeBtn");
+  const jsonBtn = document.getElementById("astViewJsonBtn");
+  const treeWrapper = document.getElementById("astTreeWrapper");
+  const jsonOutput = document.getElementById("astOutput");
+  const zoomControls = document.getElementById("astZoomControls");
+
+  if (mode === "json") {
+    jsonBtn?.classList.add("active");
+    treeBtn?.classList.remove("active");
+    if (treeWrapper) treeWrapper.style.display = "none";
+    if (jsonOutput) jsonOutput.style.display = "block";
+    if (zoomControls) zoomControls.style.display = "none";
+  } else {
+    treeBtn?.classList.add("active");
+    jsonBtn?.classList.remove("active");
+    if (treeWrapper) treeWrapper.style.display = "block";
+    if (jsonOutput) jsonOutput.style.display = "none";
+    if (zoomControls) zoomControls.style.display = "inline-flex";
+    fitAstTreeToScreen();
+  }
+}
+
+function bindAstTreeEvents() {
+  const wrapper = document.getElementById("astTreeWrapper");
+  if (!wrapper) return;
+
+  // Mouse wheel zoom centered at cursor
+  wrapper.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    zoomAst(factor, e.clientX, e.clientY);
+  }, { passive: false });
+
+  // Mouse drag panning
+  wrapper.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    isAstPanning = true;
+    wrapper.classList.add("is-panning");
+    astStartPan = { x: e.clientX - astPanX, y: e.clientY - astPanY };
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isAstPanning) return;
+    astPanX = e.clientX - astStartPan.x;
+    astPanY = e.clientY - astStartPan.y;
+    applyAstTransform();
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isAstPanning) {
+      isAstPanning = false;
+      wrapper.classList.remove("is-panning");
+    }
+  });
+
+  // Double click resets to fit
+  wrapper.addEventListener("dblclick", () => {
+    fitAstTreeToScreen();
+  });
+
+  // Touch panning
+  let touchStart = { x: 0, y: 0 };
+  let touchStartPan = { x: 0, y: 0 };
+  wrapper.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) {
+      touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      touchStartPan = { x: astPanX, y: astPanY };
+      isAstPanning = true;
+      wrapper.classList.add("is-panning");
+    }
+  }, { passive: true });
+
+  wrapper.addEventListener("touchmove", (e) => {
+    if (isAstPanning && e.touches.length === 1) {
+      astPanX = touchStartPan.x + (e.touches[0].clientX - touchStart.x);
+      astPanY = touchStartPan.y + (e.touches[0].clientY - touchStart.y);
+      applyAstTransform();
+    }
+  }, { passive: true });
+
+  wrapper.addEventListener("touchend", () => {
+    isAstPanning = false;
+    wrapper.classList.remove("is-panning");
+  });
+
+  // Stage 2 Toolbar Buttons
+  document.getElementById("astZoomInBtn")?.addEventListener("click", () => zoomAst(1.25));
+  document.getElementById("astZoomOutBtn")?.addEventListener("click", () => zoomAst(0.8));
+  document.getElementById("astZoomResetBtn")?.addEventListener("click", resetAstZoom);
+  document.getElementById("astZoomFitBtn")?.addEventListener("click", fitAstTreeToScreen);
+
+  // View Mode Toggle (Tree View vs JSON)
+  document.getElementById("astViewTreeBtn")?.addEventListener("click", () => setAstViewMode("tree"));
+  document.getElementById("astViewJsonBtn")?.addEventListener("click", () => setAstViewMode("json"));
 }
 
 // Token-based TAC syntax highlighter — avoids corrupting injected HTML tags
@@ -587,6 +1051,17 @@ function clearStages() {
     tokensBody.innerHTML = `<tr><td colspan="4" class="empty-state">Run pipeline to inspect lexical token stream…</td></tr>`;
   }
   document.getElementById("astOutput").textContent = "Run pipeline to view parsed AST hierarchy…";
+  const emptyState = document.getElementById("astEmptyState");
+  if (emptyState) emptyState.classList.remove("hidden");
+  const astViewport = document.getElementById("astTreeViewport");
+  if (astViewport) astViewport.innerHTML = "";
+  const zoomText = document.getElementById("astZoomLevelText");
+  if (zoomText) zoomText.textContent = "100%";
+  const depthChip = document.getElementById("astDepthChip");
+  if (depthChip) depthChip.textContent = "Hierarchical Syntax";
+  currentAstRaw = null;
+  astTreeBounds = null;
+
   document.getElementById("semanticOutput").textContent = "Run pipeline to run semantic validation…";
   document.getElementById("intermediateOutput").textContent = "Run pipeline to generate Three-Address Code…";
   document.getElementById("optimizationLog").textContent = "Run pipeline to inspect agent policy actions…";

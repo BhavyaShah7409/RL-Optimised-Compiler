@@ -106,9 +106,15 @@ class SourceToSourceCompiler:
         if node is None:
             return None
         result = {'type': type(node).__name__}
-        for attr in ('value', 'name', 'operator', 'target'):
+        for attr in ('name', 'operator', 'target'):
             if hasattr(node, attr):
                 result[attr] = getattr(node, attr)
+        if hasattr(node, 'value'):
+            val = getattr(node, 'value')
+            if hasattr(val, '__dict__') or hasattr(val, 'type'):
+                result['value'] = self.ast_to_dict(val)
+            else:
+                result['value'] = val
         for child_attr in ('left', 'right', 'operand', 'expression', 'condition'):
             if hasattr(node, child_attr):
                 result[child_attr] = self.ast_to_dict(getattr(node, child_attr))
