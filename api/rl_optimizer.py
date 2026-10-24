@@ -123,7 +123,17 @@ class RLOptimizer:
                             invariant = False
                             break
                 if invariant and instr.result:
-                    loop['invariant_candidates'].append(i)
+                    # Only hoist if the result is defined exactly once inside
+                    # the loop — hoisting it when it's assigned multiple times
+                    # (e.g. j = 0 inside a nested loop) would break correctness.
+                    defs_in_loop = sum(
+                        1 for ii in range(loop['start'], loop['end'] + 1)
+                        if code[ii].result == instr.result
+                        and code[ii].operation not in ('LABEL', 'GOTO', 'IF_FALSE')
+                    )
+                    if defs_in_loop == 1:
+                        loop['invariant_candidates'].append(i)
+
 
         return loops
 
@@ -150,7 +160,30 @@ class RLOptimizer:
     def is_variable_used_later(self, code: List[ThreeAddressCode], position: int, variable: str) -> bool:
         if variable not in self.variable_usage:
             return False
-        return any(pos > position for pos in self.variable_usage[variable])
+        # Simple forward check
+        if any(pos > position for pos in self.variable_usage[variable]):
+            return True
+        # Loop-awareness: if the definition at `position` is inside a loop body,
+        # the variable may be *read* on a future iteration even though all its
+        # usage-positions are <= position in the flat list.
+        # We detect this by checking whether there is a backward GOTO anywhere
+        # after `position` that jumps to a LABEL at or before the earliest
+        # usage of this variable.
+        usages = self.variable_usage.get(variable, set())
+        if not usages:
+            return False
+        earliest_use = min(usages)
+        for j in range(position + 1, len(code)):
+            instr = code[j]
+            if instr.operation == 'GOTO':
+                # Find the target label position
+                for k, ci in enumerate(code):
+                    if ci.operation == 'LABEL' and ci.arg1 == instr.arg1:
+                        if k <= earliest_use:   # backward edge covers the usage
+                            return True
+                        break
+        return False
+
 
     # ------------------------------------------------------------------
     # Optimisation transformations

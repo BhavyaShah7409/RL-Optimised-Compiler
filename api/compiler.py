@@ -4,7 +4,7 @@ from .parser import Parser
 from .semantic_analyzer import SemanticAnalyzer
 from .intermediate_code import IntermediateCodeGenerator
 from .rl_optimizer import RLOptimizer
-from .code_generator import DirectASTToPythonGenerator
+from .code_generator import TACToPythonGenerator
 from .executor import SecureExecutor
 import time
 
@@ -23,7 +23,7 @@ class SourceToSourceCompiler:
         self.semantic_analyzer = SemanticAnalyzer()
         self.intermediate_generator = IntermediateCodeGenerator()
         self.optimizer = RLOptimizer()
-        self.code_generator = DirectASTToPythonGenerator()
+        self.code_generator = TACToPythonGenerator()
         self.executor = SecureExecutor()
 
     def _empty_result(self) -> Dict[str, Any]:
@@ -80,8 +80,8 @@ class SourceToSourceCompiler:
             data['optimized_code'] = [str(i) for i in optimized_code]
             data['optimization_log'] = opt_log
 
-            # Stage 6: Target Code Generation (Python) — from AST for correctness
-            python_code = self.code_generator.generate(ast)
+            # Stage 6: Target Code Generation (Python) — from RL-Optimized TAC
+            python_code = self.code_generator.generate(optimized_code)
             data['python_code'] = python_code
 
             # Stage 7: Secure Execution
