@@ -614,8 +614,8 @@ function buildAstTreeNode(node, edgeLabel = "") {
 
 function layoutTree(root) {
   const NODE_W = 144;
-  const GAP_X = 26;
-  const GAP_Y = 96;
+  const GAP_X = 28;
+  const GAP_Y = 136; // Increased vertical spacing for clear level separation and edge label readability
 
   function calcSubtreeWidth(node) {
     if (!node.children || node.children.length === 0) {
