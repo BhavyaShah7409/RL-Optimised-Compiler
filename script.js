@@ -109,16 +109,13 @@ function bindEvents() {
 
   document.getElementById("copyBtn").addEventListener("click", () => {
     const code = editor.getValue();
-    navigator.clipboard.writeText(code).then(() => {
-      showToast("Copied to clipboard", "success");
-    }).catch(() => showToast("Copy failed", "error"));
+    navigator.clipboard.writeText(code).catch(() => {});
   });
 
   document.getElementById("clearBtn").addEventListener("click", () => {
     editor.setValue("");
     localStorage.removeItem("rl_compiler_code");
     clearStages();
-    showToast("Editor cleared");
   });
 
   // Tab switching (Compiler vs Docs)
@@ -216,9 +213,7 @@ window.copyStageContent = function(elementId) {
   const el = document.getElementById(elementId);
   if (!el) return;
   const text = el.innerText || el.textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    showToast("Copied to clipboard", "success");
-  }).catch(() => showToast("Copy failed", "error"));
+  navigator.clipboard.writeText(text).catch(() => {});
 };
 
 // ── Tab switching ─────────────────────────────────────────────────
