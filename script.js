@@ -290,16 +290,6 @@ function bindDocNav() {
   }, { passive: true });
 }
 
-// ── Toast ─────────────────────────────────────────────────────────
-function showToast(msg, type = "info") {
-  let t = document.querySelector(".toast");
-  if (!t) { t = document.createElement("div"); t.className = "toast"; document.body.appendChild(t); }
-  t.textContent = msg;
-  t.className   = `toast ${type} show`;
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.remove("show"), 2800);
-}
-
 // ── Async helpers ─────────────────────────────────────────────────
 const wait = ms => new Promise(r => setTimeout(r, ms));
 

@@ -1377,27 +1377,6 @@ p { color: var(--ink-muted); margin-bottom: .75rem; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ─── Toast ──────────────────────────────────────────────────── */
-.toast {
-  position: fixed;
-  bottom: 1.5rem; right: 1.5rem;
-  background: var(--ink);
-  color: var(--paper);
-  font-family: var(--font-mono);
-  font-size: .8rem;
-  padding: .6rem 1rem;
-  border-radius: var(--r2);
-  box-shadow: var(--sh-md);
-  z-index: 9999;
-  transform: translateY(10px);
-  opacity: 0;
-  transition: all var(--t2);
-  pointer-events: none;
-}
-
-.toast.show { transform: translateY(0); opacity: 1; }
-.toast.error { background: var(--err); }
-.toast.success { background: #16a34a; }
 
 /* ─── Footer (Aesthetic, Modern & Minimal) ───────────────────── */
 .app-footer {

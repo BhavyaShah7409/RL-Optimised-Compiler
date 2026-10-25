@@ -1,5 +1,5 @@
 from typing import List, Optional
-from .lexer import Token, TokenType, Lexer
+from .lexer import Token, TokenType
 from .ast_nodes import *
 
 class ParseError(Exception):

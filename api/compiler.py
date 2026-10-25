@@ -1,5 +1,5 @@
-from typing import Dict, List, Any, Tuple
-from .lexer import Lexer, Token
+from typing import Dict, Any
+from .lexer import Lexer
 from .parser import Parser
 from .semantic_analyzer import SemanticAnalyzer
 from .intermediate_code import IntermediateCodeGenerator
@@ -7,15 +7,6 @@ from .rl_optimizer import RLOptimizer
 from .code_generator import TACToPythonGenerator
 from .executor import SecureExecutor
 import time
-
-# BUG FIX #15: do NOT set recursion limit at module level (it affects the whole
-# Gunicorn process).  We only raise it locally inside compile_and_execute and
-# restore it afterwards.
-_DEFAULT_RECURSION_LIMIT = 1000
-
-
-class CompilerError(Exception):
-    pass
 
 
 class SourceToSourceCompiler:
