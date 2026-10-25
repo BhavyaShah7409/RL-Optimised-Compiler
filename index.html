@@ -99,6 +99,13 @@
                 </svg>
                 Clear
               </button>
+              <button id="resetExampleBtn" class="btn btn-secondary" title="Load default showcase example">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                  <path d="M3 3v5h5"></path>
+                </svg>
+                Example
+              </button>
               <button id="runBtn" class="btn btn-primary" title="Compile &amp; run (Ctrl+Enter)">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
@@ -109,17 +116,21 @@
           </div>
 
           <div class="editor-container">
-            <textarea id="codeEditor" placeholder="// Write your code here…">// Fibonacci example
-x = 0;
-y = 1;
+            <textarea id="codeEditor" placeholder="// Write your code here…">a = 10;
+b = 20;
+c = 2 + 3;
+d = a + b;
+e = a + b;
+f = c * 1;
+unused = 999;
 i = 0;
-while (i < 10) {
-    print(x);
-    temp = x + y;
-    x = y;
-    y = temp;
+while (i < 3) {
+    result = a * b;
+    print(result);
     i += 1;
-}</textarea>
+}
+print(d);
+print(f);</textarea>
           </div>
 
           <div class="input-section">

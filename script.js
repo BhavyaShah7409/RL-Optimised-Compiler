@@ -48,6 +48,22 @@ function toggleTheme() {
   setTheme(current === "dark" ? "light" : "dark");
 }
 
+const DEFAULT_CODE = `a = 10;
+b = 20;
+c = 2 + 3;
+d = a + b;
+e = a + b;
+f = c * 1;
+unused = 999;
+i = 0;
+while (i < 3) {
+    result = a * b;
+    print(result);
+    i += 1;
+}
+print(d);
+print(f);`;
+
 // ── Editor setup ─────────────────────────────────────────────────
 function initEditor() {
   const ta = document.getElementById("codeEditor");
@@ -65,7 +81,12 @@ function initEditor() {
   });
 
   const saved = localStorage.getItem("rl_compiler_code");
-  if (saved) editor.setValue(saved);
+  if (saved && !saved.includes("Fibonacci")) {
+    editor.setValue(saved);
+  } else {
+    editor.setValue(DEFAULT_CODE);
+    localStorage.setItem("rl_compiler_code", DEFAULT_CODE);
+  }
 
   let debounce;
   editor.on("change", () => {
@@ -98,6 +119,12 @@ function bindEvents() {
     localStorage.removeItem("rl_compiler_code");
     clearStages();
     showToast("Editor cleared");
+  });
+
+  document.getElementById("resetExampleBtn")?.addEventListener("click", () => {
+    editor.setValue(DEFAULT_CODE);
+    localStorage.setItem("rl_compiler_code", DEFAULT_CODE);
+    showToast("Showcase example loaded", "success");
   });
 
   // Tab switching (Compiler vs Docs)
