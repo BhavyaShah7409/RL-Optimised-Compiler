@@ -121,12 +121,6 @@ function bindEvents() {
     showToast("Editor cleared");
   });
 
-  document.getElementById("resetExampleBtn")?.addEventListener("click", () => {
-    editor.setValue(DEFAULT_CODE);
-    localStorage.setItem("rl_compiler_code", DEFAULT_CODE);
-    showToast("Showcase example loaded", "success");
-  });
-
   // Tab switching (Compiler vs Docs)
   document.querySelectorAll(".tab-button").forEach(btn => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
