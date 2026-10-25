@@ -7,7 +7,7 @@ from .intermediate_code import ThreeAddressCode
 
 @dataclass
 class OptimizationAction:
-    type: str   # 'constant_folding' | 'dead_code_elimination' | 'common_subexpression' | 'strength_reduction' | 'loop_invariant'
+    type: str   # 'constant_folding' | 'dead_code_elimination' | 'common_subexpression' | 'algebraic_simplification' | 'loop_invariant_motion'
     position: int
     confidence: float = 0.0
     loop_info: Dict[str, Any] = field(default_factory=dict)
@@ -32,19 +32,24 @@ class RLOptimizer:
         self.variable_defs: Dict[str, Set[int]] = {}
 
     # ------------------------------------------------------------------
-    # State key — BUG FIX #11: encode operation *type* only, not position,
-    # so Q-values remain valid after insertions / deletions.
+    # State key: Fingerprint of surrounding instruction opcodes within a window
+    # of position ±1, combined with variable live-range status.
     # ------------------------------------------------------------------
     def get_state_key(self, code: List[ThreeAddressCode], position: int) -> str:
         if position >= len(code):
             return "END"
         current = code[position]
-        context = [current.operation]
-        if position > 0:
-            context.append(f"prev_{code[position - 1].operation}")
-        if position < len(code) - 1:
-            context.append(f"next_{code[position + 1].operation}")
-        return "_".join(context)
+        prev_op = code[position - 1].operation if position > 0 else "NONE"
+        next_op = code[position + 1].operation if position < len(code) - 1 else "NONE"
+
+        # Variable live-range status
+        if current.result:
+            is_live = self.is_variable_used_later(code, position, current.result)
+            live_status = "live" if is_live else "dead"
+        else:
+            live_status = "none"
+
+        return f"{prev_op}_{current.operation}_{next_op}_live_{live_status}"
 
     # ------------------------------------------------------------------
     # Usage / definition tracking
@@ -309,19 +314,75 @@ class RLOptimizer:
                 return new_code
         return code
 
-    def apply_strength_reduction(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
+    def apply_algebraic_simplification(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
+        """Simplify identity operations: x + 0, x * 1, x * 0, x - 0, 0 - x, x / 1, x * 2, etc."""
         if position >= len(code):
             return code
         instr = code[position]
-        new_code = _deep_copy_code(code)
-        if instr.operation == '*':
-            if self.is_constant(instr.arg2) and self.try_parse_float(instr.arg2) == 2.0:
-                new_code[position] = ThreeAddressCode('+', instr.arg1, instr.arg1, instr.result)
-                return new_code
-            if self.is_constant(instr.arg1) and self.try_parse_float(instr.arg1) == 2.0:
-                new_code[position] = ThreeAddressCode('+', instr.arg2, instr.arg2, instr.result)
-                return new_code
+        op = instr.operation
+        a1, a2, res = instr.arg1, instr.arg2, instr.result
+        if not a1 or not a2 or not res:
+            return code
+
+        val1 = self.try_parse_float(a1)
+        val2 = self.try_parse_float(a2)
+        new_instr = None
+
+        if op == '+':
+            # x + 0 -> x
+            if val2 == 0.0:
+                new_instr = ThreeAddressCode('ASSIGN', a1, None, res)
+            # 0 + x -> x
+            elif val1 == 0.0:
+                new_instr = ThreeAddressCode('ASSIGN', a2, None, res)
+
+        elif op == '-':
+            # x - 0 -> x
+            if val2 == 0.0:
+                new_instr = ThreeAddressCode('ASSIGN', a1, None, res)
+            # 0 - x -> -x
+            elif val1 == 0.0 and not self.is_constant(a2):
+                new_instr = ThreeAddressCode('-', a2, None, res)
+            # x - x -> 0 (for variables)
+            elif a1 == a2 and not self.is_constant(a1):
+                new_instr = ThreeAddressCode('ASSIGN', '0', None, res)
+
+        elif op == '*':
+            # x * 0 -> 0 or 0 * x -> 0
+            if val1 == 0.0 or val2 == 0.0:
+                new_instr = ThreeAddressCode('ASSIGN', '0', None, res)
+            # x * 1 -> x
+            elif val2 == 1.0:
+                new_instr = ThreeAddressCode('ASSIGN', a1, None, res)
+            # 1 * x -> x
+            elif val1 == 1.0:
+                new_instr = ThreeAddressCode('ASSIGN', a2, None, res)
+            # x * 2 -> x + x (strength reduction)
+            elif val2 == 2.0 and not self.is_constant(a1):
+                new_instr = ThreeAddressCode('+', a1, a1, res)
+            elif val1 == 2.0 and not self.is_constant(a2):
+                new_instr = ThreeAddressCode('+', a2, a2, res)
+
+        elif op == '/':
+            # x / 1 -> x
+            if val2 == 1.0:
+                new_instr = ThreeAddressCode('ASSIGN', a1, None, res)
+            # 0 / x -> 0 (if x != 0)
+            elif val1 == 0.0 and val2 != 0.0:
+                new_instr = ThreeAddressCode('ASSIGN', '0', None, res)
+            # x / x -> 1 (for variables)
+            elif a1 == a2 and not self.is_constant(a1):
+                new_instr = ThreeAddressCode('ASSIGN', '1', None, res)
+
+        if new_instr is not None:
+            new_code = _deep_copy_code(code)
+            new_code[position] = new_instr
+            return new_code
         return code
+
+    def apply_strength_reduction(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
+        # Alias to algebraic simplification
+        return self.apply_algebraic_simplification(code, position)
 
     def apply_loop_invariant_motion(self, code: List[ThreeAddressCode], position: int,
                                      loop_idx: int, loops: List[Dict[str, Any]]) -> List[ThreeAddressCode]:
@@ -344,19 +405,27 @@ class RLOptimizer:
         return new_code
 
     # ------------------------------------------------------------------
-    # Reward — BUG FIX #10: removed phantom 'COMMENT' check, rewarded correctly
+    # Reward Formulation:
+    # Reward = (+10 × removed_instructions) + (+5 × folded_constants) − (20 × code_growth)
     # ------------------------------------------------------------------
     def calculate_reward(self, original_code: List[ThreeAddressCode],
-                         optimized_code: List[ThreeAddressCode]) -> float:
-        size_reduction = len(original_code) - len(optimized_code)
-        reward = size_reduction * 10.0
+                         optimized_code: List[ThreeAddressCode],
+                         action: Optional[OptimizationAction] = None) -> float:
+        removed_instructions = max(0, len(original_code) - len(optimized_code))
+        code_growth = max(0, len(optimized_code) - len(original_code))
 
-        for instr in optimized_code:
-            if instr.operation == 'ASSIGN' and self.is_constant(instr.arg1):
-                reward += 5.0  # constant folding bonus
+        orig_const_assigns = sum(1 for i in original_code if i.operation == 'ASSIGN' and self.is_constant(i.arg1))
+        opt_const_assigns = sum(1 for i in optimized_code if i.operation == 'ASSIGN' and self.is_constant(i.arg1))
+        folded_constants = max(0, opt_const_assigns - orig_const_assigns)
+        if action and action.type == 'constant_folding' and folded_constants == 0:
+            folded_constants = 1
 
-        if len(optimized_code) > len(original_code):
-            reward -= 20.0
+        reward = (10.0 * removed_instructions) + (5.0 * folded_constants) - (20.0 * code_growth)
+
+        # Baseline positive reward if code was simplified or CSE replaced without length change
+        if reward == 0.0 and (len(optimized_code) != len(original_code) or
+                              any(optimized_code[i] != original_code[i] for i in range(len(original_code)))):
+            reward = 5.0
 
         return reward
 
@@ -405,11 +474,24 @@ class RLOptimizer:
                     actions.append(OptimizationAction('common_subexpression', position, 0.6))
                     break
 
-        # Strength reduction
-        if current.operation == '*' and current.arg1 and current.arg2:
-            if ((self.is_constant(current.arg1) and self.try_parse_float(current.arg1) == 2.0) or
-                    (self.is_constant(current.arg2) and self.try_parse_float(current.arg2) == 2.0)):
-                actions.append(OptimizationAction('strength_reduction', position, 0.5))
+        # Algebraic simplification (identities: x + 0, x * 1, x * 0, x - 0, x / 1, x * 2, etc.)
+        if current.operation in ('+', '-', '*', '/') and current.arg1 and current.arg2 and current.result:
+            v1 = self.try_parse_float(current.arg1)
+            v2 = self.try_parse_float(current.arg2)
+            # Only trigger if not both constants (constant folding handles pure constants)
+            if not (self.is_constant(current.arg1) and self.is_constant(current.arg2)):
+                can_simplify = False
+                if current.operation == '+':
+                    can_simplify = (v1 == 0.0 or v2 == 0.0)
+                elif current.operation == '-':
+                    can_simplify = (v2 == 0.0 or (current.arg1 == current.arg2 and not self.is_constant(current.arg1)) or (v1 == 0.0 and not self.is_constant(current.arg2)))
+                elif current.operation == '*':
+                    can_simplify = (v1 == 0.0 or v2 == 0.0 or v1 == 1.0 or v2 == 1.0 or v1 == 2.0 or v2 == 2.0)
+                elif current.operation == '/':
+                    can_simplify = (v2 == 1.0 or (v1 == 0.0 and v2 != 0.0) or (current.arg1 == current.arg2 and not self.is_constant(current.arg1)))
+
+                if can_simplify:
+                    actions.append(OptimizationAction('algebraic_simplification', position, 0.65))
 
         # Loop invariant code motion
         for loop_idx, loop in enumerate(loops):
@@ -425,7 +507,7 @@ class RLOptimizer:
                                     break
                         if is_inv:
                             outermost_idx = j
-                actions.append(OptimizationAction('loop_invariant', position, 0.9,
+                actions.append(OptimizationAction('loop_invariant_motion', position, 0.9,
                                                    {'loop_idx': outermost_idx}))
                 break
 
@@ -441,7 +523,7 @@ class RLOptimizer:
 
         best_action, best_q = None, float('-inf')
         for action in actions:
-            q = self.q_table[state].get(action.type, 0.0)   # BUG FIX #11: type-only key
+            q = self.q_table[state].get(action.type, 0.0)
             if q > best_q:
                 best_q = q
                 best_action = action
@@ -455,9 +537,9 @@ class RLOptimizer:
             return self.apply_dead_code_elimination(code, action.position)
         elif action.type == 'common_subexpression':
             return self.apply_common_subexpression_elimination(code, action.position)
-        elif action.type == 'strength_reduction':
-            return self.apply_strength_reduction(code, action.position)
-        elif action.type == 'loop_invariant':
+        elif action.type in ('algebraic_simplification', 'strength_reduction'):
+            return self.apply_algebraic_simplification(code, action.position)
+        elif action.type in ('loop_invariant_motion', 'loop_invariant'):
             return self.apply_loop_invariant_motion(
                 code, action.position, action.loop_info.get('loop_idx', 0), loops)
         return code
@@ -496,7 +578,7 @@ class RLOptimizer:
                                         any(new_code[i] != old_code[i] for i in range(len(old_code))))
 
                         if code_changed:
-                            reward = self.calculate_reward(old_code, new_code)
+                            reward = self.calculate_reward(old_code, new_code, action)
                             next_state = self.get_state_key(new_code, position)
                             self.update_q_value(state, action, reward, next_state)
 
@@ -508,17 +590,17 @@ class RLOptimizer:
                                 f"(reward: {reward:.2f}, Q: {q_val:.2f})"
                             )
 
-                            # BUG FIX #9: re-analyse immediately so is_variable_used_later
-                            # uses fresh data for the rest of this pass
                             self.analyze_code(optimized_code)
                             loops = self.find_loops(optimized_code)
                             changed = True
-                            self.epsilon = max(0.01, self.epsilon * 0.99)
 
                             if len(new_code) < len(old_code):
                                 continue  # don't advance; same position may have a new instruction
 
                 position += 1
+
+            # Exploration vs Exploitation: Exponential decay schedule (x0.99 per optimization pass)
+            self.epsilon = max(0.01, self.epsilon * 0.99)
             step += 1
 
         return optimized_code, optimization_log
