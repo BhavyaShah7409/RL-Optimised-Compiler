@@ -172,10 +172,34 @@ class RLOptimizer:
     def is_variable_used_later(self, code: List[ThreeAddressCode], position: int, variable: str) -> bool:
         if variable not in self.variable_usage:
             return False
-        usages = self.variable_usage[variable]
-        # Simple forward check
+        usages = self.variable_usage.get(variable, set())
+        if not usages:
+            return False
+
+        # Dead store elimination check within the current basic block:
+        # Scan forward from position + 1:
+        # 1. If we see a read of `variable` (in arg1 or arg2), it is definitely used!
+        # 2. If we see an overwrite of `variable` (instr.result == variable) with NO read before it
+        #    and NO control flow (LABEL, GOTO, IF_FALSE) intervening:
+        #    then the store at `position` is DEAD — completely overwritten before it could ever be read.
+        killed_in_basic_block = False
+        for j in range(position + 1, len(code)):
+            instr = code[j]
+            if instr.operation in ('LABEL', 'GOTO', 'IF_FALSE'):
+                break  # end of straight-line basic block
+            if instr.arg1 == variable or instr.arg2 == variable:
+                return True
+            if instr.result == variable:
+                killed_in_basic_block = True
+                break
+
+        if killed_in_basic_block:
+            return False
+
+        # Simple forward check across branches
         if any(pos > position for pos in usages):
             return True
+
         # Loop-awareness: if the definition at `position` is inside a loop body,
         # the variable may be *read* on a future iteration even though all its
         # usage-positions are <= position in the flat list.
