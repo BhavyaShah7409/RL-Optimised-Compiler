@@ -31,6 +31,10 @@
           <h1>RL-Optimized Source to Source Compiler</h1>
         </div>
         <p>Custom language &rarr; optimized Python via a 7-stage Q-learning pipeline.</p>
+        <div class="render-notice" id="renderNotice" title="Free-tier Render service spins down after inactivity">
+          <span class="bolt">⚡</span>
+          <span><strong>Note:</strong> Deployed on Render free tier &mdash; initial run may take ~15s to wake up the server.</span>
+        </div>
       </div>
       <div class="header-controls">
         <button id="themeToggleBtn" class="theme-toggle-switch" title="Toggle Light / Dark theme" aria-label="Toggle theme">
@@ -56,9 +60,10 @@
             <span class="theme-toggle-thumb"></span>
           </span>
         </button>
-        <span class="header-badge" id="apiLiveBadge" title="Backend Server: Live and Operational">
-          <span class="dot"></span>API Live
-        </span>
+        <button class="header-badge header-badge-btn" id="apiLiveBadge" title="Click to ping and wake up backend API">
+          <span class="dot online" id="apiLiveDot"></span>
+          <span id="apiLiveText">API Live</span>
+        </button>
       </div>
     </header>
 

@@ -278,7 +278,7 @@ p { color: var(--ink-muted); margin-bottom: .75rem; }
   box-shadow: 0 2px 8px rgba(0,0,0,0.5), 0 0 8px rgba(165, 180, 252, 0.3);
 }
 
-/* ─── API Live Badge (Placed at far right) ──────────────────── */
+/* ─── API Live Badge (Interactive button placed at far right) ── */
 .header-badge {
   display: inline-flex;
   align-items: center;
@@ -296,20 +296,52 @@ p { color: var(--ink-muted); margin-bottom: .75rem; }
   box-shadow: var(--sh-sm);
   transition: all var(--t1);
   user-select: none;
+  cursor: pointer;
+  outline: none;
+  text-decoration: none;
 }
 
 .header-badge:hover {
   border-color: var(--ink-faint);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.header-badge:active {
+  transform: translateY(0);
+}
+
+.header-badge.loading {
+  cursor: wait;
 }
 
 .header-badge .dot {
   width: 7px;
   height: 7px;
-  background: #22c55e;
   border-radius: 50%;
+  transition: background 0.3s ease;
+}
+
+/* Online state (green) */
+.header-badge .dot,
+.header-badge .dot.online {
+  background: #22c55e;
   box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
   animation: livePulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Waking / loading state (amber/yellow) */
+.header-badge .dot.waking {
+  background: #eab308;
+  box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.7);
+  animation: wakePulse 1.2s ease-in-out infinite;
+}
+
+/* Offline / sleeping state (orange) */
+.header-badge .dot.offline {
+  background: #f97316;
+  box-shadow: none;
+  animation: none;
 }
 
 @keyframes livePulse {
@@ -325,6 +357,40 @@ p { color: var(--ink-muted); margin-bottom: .75rem; }
     transform: scale(0.95);
     box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
   }
+}
+
+@keyframes wakePulse {
+  0%, 100% { transform: scale(0.9); opacity: 0.6; }
+  50% { transform: scale(1.25); opacity: 1; }
+}
+
+/* Render free-tier sleep notice */
+.render-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  margin-top: .45rem;
+  font-size: .78rem;
+  color: var(--ink-muted);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: .24rem .65rem;
+  border-radius: var(--r);
+  width: fit-content;
+  box-shadow: var(--sh-sm);
+  transition: all var(--t1);
+  line-height: 1.4;
+}
+
+.render-notice .bolt {
+  color: #f59e0b;
+  font-size: .85rem;
+  animation: boltPulse 2s ease-in-out infinite;
+}
+
+@keyframes boltPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.15); }
 }
 
 /* ─── Tabs ───────────────────────────────────────────────────── */

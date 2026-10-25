@@ -28,6 +28,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initEditor();
   bindEvents();
   bindDocNav();
+  // Pre-warm backend API on initial page visit (wakes Render instance if sleeping)
+  pingBackend(false);
 });
 
 // ── Theme Management (Default: Light) ─────────────────────────────
@@ -104,6 +106,7 @@ let currentViewMode = "focused"; // "focused" | "all"
 // ── Event bindings ────────────────────────────────────────────────
 function bindEvents() {
   document.getElementById("themeToggleBtn")?.addEventListener("click", toggleTheme);
+  document.getElementById("apiLiveBadge")?.addEventListener("click", () => pingBackend(true));
 
   document.getElementById("runBtn").addEventListener("click", compileAndRun);
 
@@ -293,6 +296,55 @@ function bindDocNav() {
 // ── Async helpers ─────────────────────────────────────────────────
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
+// ── Backend Health & Wake-up Check ────────────────────────────────
+let isPingingBackend = false;
+
+async function pingBackend(manual = false) {
+  if (isPingingBackend) return;
+  isPingingBackend = true;
+
+  const badge = document.getElementById("apiLiveBadge");
+  const dot   = document.getElementById("apiLiveDot");
+  const text  = document.getElementById("apiLiveText");
+
+  if (dot) dot.className = "dot waking";
+  if (text) text.textContent = "Waking API…";
+  if (badge) {
+    badge.classList.remove("online", "offline");
+    badge.classList.add("loading");
+    badge.title = "Connecting to backend… (Render cold starts take ~15–30s)";
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    const res = await fetch(`${API_BASE_URL}/api/health`, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      if (dot) dot.className = "dot online";
+      if (text) text.textContent = "API Live";
+      if (badge) {
+        badge.classList.remove("loading", "offline");
+        badge.classList.add("online");
+        badge.title = "Backend is live & ready. Click to re-check.";
+      }
+    } else {
+      throw new Error(`Health status ${res.status}`);
+    }
+  } catch (err) {
+    if (dot) dot.className = "dot offline";
+    if (text) text.textContent = "Wake API";
+    if (badge) {
+      badge.classList.remove("loading", "online");
+      badge.classList.add("offline");
+      badge.title = "Backend is sleeping (Render cold start). Click to wake it up!";
+    }
+  } finally {
+    isPingingBackend = false;
+  }
+}
+
 // ── Main compile ──────────────────────────────────────────────────
 async function compileAndRun() {
   const runBtn = document.getElementById("runBtn");
@@ -303,6 +355,12 @@ async function compileAndRun() {
   const statusText = document.getElementById("pipelineStatusText");
   if (dot) dot.className = "status-pulse-dot running";
   if (statusText) statusText.textContent = "Processing";
+
+  // If request takes > 2.2s, notify user about Render free-tier cold spinup
+  const wakeTimer = setTimeout(() => {
+    runBtn.innerHTML = `<span class="spinner"></span> Waking Render (~15s)…`;
+    if (statusText) statusText.textContent = "Waking Render API (Cold Start)…";
+  }, 2200);
 
   // Reset card states
   for (let i = 1; i <= 7; i++) {
@@ -325,6 +383,8 @@ async function compileAndRun() {
       body:    JSON.stringify({ source_code: source, input_data: input }),
     });
 
+    clearTimeout(wakeTimer);
+
     if (!res.ok) throw new Error(`HTTP ${res.status} from server.`);
 
     const json = await res.json();
@@ -336,7 +396,19 @@ async function compileAndRun() {
     if (dot) dot.className = json.data.success ? "status-pulse-dot success" : "status-pulse-dot error";
     if (statusText) statusText.textContent = json.data.success ? "Completed" : "Diagnostics Alert";
 
+    // Mark API badge live
+    const apiDot = document.getElementById("apiLiveDot");
+    const apiText = document.getElementById("apiLiveText");
+    const apiBadge = document.getElementById("apiLiveBadge");
+    if (apiDot) apiDot.className = "dot online";
+    if (apiText) apiText.textContent = "API Live";
+    if (apiBadge) {
+      apiBadge.classList.remove("loading", "offline");
+      apiBadge.classList.add("online");
+    }
+
   } catch (err) {
+    clearTimeout(wakeTimer);
     console.error(err);
     if (dot) dot.className = "status-pulse-dot error";
     if (statusText) statusText.textContent = "Failed";
@@ -346,12 +418,13 @@ async function compileAndRun() {
     if (errSection) errSection.style.display = "block";
     if (errOut) {
       errOut.textContent = err.message.includes("fetch") || err.message.includes("HTTP")
-        ? `Cannot reach backend at ${API_BASE_URL}\n\nMake sure the local server is running on port 5000.`
+        ? `Cannot reach backend at ${API_BASE_URL}\n\n⚡ Note: The backend is deployed on Render free tier, which sleeps after periods of inactivity. Waking up can take ~15–30 seconds.\n\n👉 Click the "API Live" / "Wake API" button at the top-right header, or wait a few moments and click "Run" again.`
         : err.message;
     }
     setActiveStage(7);
 
   } finally {
+    clearTimeout(wakeTimer);
     runBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Run`;
     runBtn.disabled = false;
   }
