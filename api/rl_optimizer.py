@@ -116,6 +116,19 @@ class RLOptimizer:
                 instr = code[i]
                 if instr.operation not in ('+', '-', '*', '/', 'ASSIGN'):
                     continue
+                if not instr.result:
+                    continue
+                # Do not hoist if the variable is read anywhere in the loop before `i`
+                # (e.g. in the loop condition or earlier statements, which is a loop-carried dependency)
+                read_before = False
+                for j in range(loop['start'], i):
+                    cj = code[j]
+                    if cj.arg1 == instr.result or cj.arg2 == instr.result:
+                        read_before = True
+                        break
+                if read_before:
+                    continue
+
                 invariant = True
                 for arg in (instr.arg1, instr.arg2):
                     if arg and isinstance(arg, str) and not self.is_constant(arg):
@@ -133,7 +146,6 @@ class RLOptimizer:
                     )
                     if defs_in_loop == 1:
                         loop['invariant_candidates'].append(i)
-
 
         return loops
 
@@ -160,28 +172,24 @@ class RLOptimizer:
     def is_variable_used_later(self, code: List[ThreeAddressCode], position: int, variable: str) -> bool:
         if variable not in self.variable_usage:
             return False
+        usages = self.variable_usage[variable]
         # Simple forward check
-        if any(pos > position for pos in self.variable_usage[variable]):
+        if any(pos > position for pos in usages):
             return True
         # Loop-awareness: if the definition at `position` is inside a loop body,
         # the variable may be *read* on a future iteration even though all its
         # usage-positions are <= position in the flat list.
-        # We detect this by checking whether there is a backward GOTO anywhere
-        # after `position` that jumps to a LABEL at or before the earliest
-        # usage of this variable.
-        usages = self.variable_usage.get(variable, set())
-        if not usages:
-            return False
-        earliest_use = min(usages)
+        # If there is a backward GOTO after `position` that jumps to a LABEL at or before
+        # `position`, and `variable` is used anywhere within that loop's range [target, j],
+        # then the variable will be read again on the next iteration.
+        label_pos = {instr.arg1: idx for idx, instr in enumerate(code) if instr.operation == 'LABEL'}
         for j in range(position + 1, len(code)):
             instr = code[j]
-            if instr.operation == 'GOTO':
-                # Find the target label position
-                for k, ci in enumerate(code):
-                    if ci.operation == 'LABEL' and ci.arg1 == instr.arg1:
-                        if k <= earliest_use:   # backward edge covers the usage
-                            return True
-                        break
+            if instr.operation == 'GOTO' and instr.arg1 in label_pos:
+                target_pos = label_pos[instr.arg1]
+                if target_pos <= position:
+                    if any(target_pos <= u <= j for u in usages):
+                        return True
         return False
 
 
@@ -192,7 +200,7 @@ class RLOptimizer:
         if position >= len(code):
             return code
         instr = code[position]
-        if instr.operation in ('+', '-', '*', '/') and self.is_constant(instr.arg1) and self.is_constant(instr.arg2):
+        if instr.operation in ('+', '-', '*', '/') and instr.arg1 and instr.arg2 and self.is_constant(instr.arg1) and self.is_constant(instr.arg2):
             try:
                 v1, v2 = float(instr.arg1), float(instr.arg2)
                 if instr.operation == '+':
@@ -214,6 +222,16 @@ class RLOptimizer:
                 return new_code
             except Exception:
                 return code
+        elif instr.operation in ('+', '-') and instr.arg1 and instr.arg2 is None and self.is_constant(instr.arg1):
+            try:
+                v1 = float(instr.arg1)
+                res = -v1 if instr.operation == '-' else v1
+                res_str = str(int(res)) if res == int(res) else str(res)
+                new_code = _deep_copy_code(code)
+                new_code[position] = ThreeAddressCode('ASSIGN', res_str, None, instr.result)
+                return new_code
+            except Exception:
+                return code
         return code
 
     def apply_dead_code_elimination(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
@@ -228,23 +246,43 @@ class RLOptimizer:
         del new_code[position]
         return new_code
 
+    def _is_valid_cse(self, code: List[ThreeAddressCode], prev_idx: int, cur_idx: int) -> bool:
+        prev = code[prev_idx]
+        cur = code[cur_idx]
+        if prev.operation != cur.operation or prev.arg1 != cur.arg1 or prev.arg2 != cur.arg2 or not prev.result:
+            return False
+        # If prev.result overwrote one of its own operands (e.g. i = i + 1), it cannot be reused
+        if not self.is_constant(cur.arg1) and prev.result == cur.arg1:
+            return False
+        if not self.is_constant(cur.arg2) and prev.result == cur.arg2:
+            return False
+        # Must be within the same basic block and neither operands nor prev.result can be overwritten
+        for j in range(prev_idx + 1, cur_idx):
+            instr = code[j]
+            if instr.operation in ('LABEL', 'GOTO', 'IF_FALSE'):
+                return False
+            if instr.result:
+                if instr.result == prev.result:
+                    return False
+                if not self.is_constant(cur.arg1) and instr.result == cur.arg1:
+                    return False
+                if not self.is_constant(cur.arg2) and instr.result == cur.arg2:
+                    return False
+        return True
+
     def apply_common_subexpression_elimination(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
         if position >= len(code):
             return code
         current = code[position]
         if current.operation not in ('+', '-', '*', '/') or not current.arg1 or not current.arg2:
             return code
-        for i in range(position):
-            prev = code[i]
-            if (prev.operation == current.operation and
-                    prev.arg1 == current.arg1 and
-                    prev.arg2 == current.arg2 and prev.result):
-                # Ensure prev.result hasn't been overwritten between i and position
-                overwritten = any(code[j].result == prev.result for j in range(i + 1, position))
-                if not overwritten:
-                    new_code = _deep_copy_code(code)
-                    new_code[position] = ThreeAddressCode('ASSIGN', prev.result, None, current.result)
-                    return new_code
+        for i in range(position - 1, -1, -1):
+            if code[i].operation in ('LABEL', 'GOTO', 'IF_FALSE'):
+                break
+            if self._is_valid_cse(code, i, position):
+                new_code = _deep_copy_code(code)
+                new_code[position] = ThreeAddressCode('ASSIGN', code[i].result, None, current.result)
+                return new_code
         return code
 
     def apply_strength_reduction(self, code: List[ThreeAddressCode], position: int) -> List[ThreeAddressCode]:
@@ -325,18 +363,21 @@ class RLOptimizer:
         if (current.operation in ('+', '-', '*', '/') and current.arg1 and current.arg2
                 and self.is_constant(current.arg1) and self.is_constant(current.arg2)):
             actions.append(OptimizationAction('constant_folding', position, 0.8))
+        elif (current.operation in ('+', '-') and current.arg1 and current.arg2 is None
+                and self.is_constant(current.arg1)):
+            actions.append(OptimizationAction('constant_folding', position, 0.8))
 
         # Dead code elimination
         if (current.result and not self.is_variable_used_later(code, position, current.result)
-                and current.operation not in ('PRINT', 'SCAN')):
+                and current.operation not in ('PRINT', 'SCAN', 'LABEL', 'GOTO', 'IF_FALSE')):
             actions.append(OptimizationAction('dead_code_elimination', position, 0.7))
 
-        # Common subexpression elimination
+        # Common subexpression elimination (within basic block)
         if current.operation in ('+', '-', '*', '/') and current.arg1 and current.arg2:
-            for i in range(position):
-                prev = code[i]
-                if (prev.operation == current.operation and prev.arg1 == current.arg1
-                        and prev.arg2 == current.arg2 and prev.result):
+            for i in range(position - 1, -1, -1):
+                if code[i].operation in ('LABEL', 'GOTO', 'IF_FALSE'):
+                    break
+                if self._is_valid_cse(code, i, position):
                     actions.append(OptimizationAction('common_subexpression', position, 0.6))
                     break
 

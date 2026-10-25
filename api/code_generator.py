@@ -305,6 +305,12 @@ class TACToPythonGenerator:
         elif op == 'SCAN':
             self._emit(f"{res} = float(custom_input())")
 
+        elif instr.arg2 is None and op in ('-', '+'):
+            self._emit(f"{res} = ({op}{a1})")
+
+        elif instr.arg2 is None and op == '!':
+            self._emit(f"{res} = (not {a1})")
+
         elif op in ('+', '-', '*', '/', '%',
                     '==', '!=', '<', '<=', '>', '>='):
             if op == '/':
@@ -318,12 +324,6 @@ class TACToPythonGenerator:
         elif op == '||':
             self._emit(f"{res} = ({a1} or {a2})")
 
-        elif op == '!' and instr.arg2 is None:
-            self._emit(f"{res} = (not {a1})")
-
-        elif instr.arg2 is None and op in ('-', '+'):
-            self._emit(f"{res} = ({op}{a1})")
-
         elif op in ('LABEL', 'GOTO'):
             pass  # already consumed above
 
@@ -335,6 +335,10 @@ class TACToPythonGenerator:
         op = instr.operation
         a1 = _fmt(instr.arg1)
         a2 = _fmt(instr.arg2)
+        if instr.arg2 is None and op in ('-', '+'):
+            return f"({op}{a1})"
+        if instr.arg2 is None and op == '!':
+            return f"(not {a1})"
         if op in ('+', '-', '*', '%', '==', '!=', '<', '<=', '>', '>='):
             return f"({a1} {op} {a2})"
         if op == '/':

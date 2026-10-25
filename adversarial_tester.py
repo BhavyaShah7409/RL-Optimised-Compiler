@@ -36,7 +36,10 @@ class Fuzzer:
         # Let's keep it mostly valid syntax.
         return f"({left} {op} {right})"
 
-    def generate_statement(self, depth=0, in_loop=False):
+    def generate_statement(self, depth=0, in_loop=False, active_loop_vars=None):
+        if active_loop_vars is None:
+            active_loop_vars = set()
+
         if depth >= 4:
             types = ['assign', 'print']
         else:
@@ -49,7 +52,6 @@ class Fuzzer:
         if choice == 'assign':
             var = self.random_var()
             # Try not to overwrite the loop variable of an active loop to avoid infinite loops
-            # If in_loop is True, prefer generating x, y, z, a, b, c instead of i, j, k
             if in_loop and var in ['i', 'j', 'k']:
                 var = random.choice(['x', 'y', 'z', 'a', 'b', 'c'])
                 
@@ -63,15 +65,20 @@ class Fuzzer:
             
         elif choice == 'if':
             cond = f"{self.generate_expr(depth)} {random.choice(['==', '!=', '>', '<', '>=', '<='])} {self.generate_expr(depth)}"
-            body = "\n".join([self.generate_statement(depth + 1, in_loop) for _ in range(random.randint(1, 3))])
+            body = "\n".join([self.generate_statement(depth + 1, in_loop, active_loop_vars) for _ in range(random.randint(1, 3))])
             else_body = ""
             if random.random() < 0.5:
-                else_body = " else {\n" + "\n".join([self.generate_statement(depth + 1, in_loop) for _ in range(random.randint(1, 3))]) + "\n}"
+                else_body = " else {\n" + "\n".join([self.generate_statement(depth + 1, in_loop, active_loop_vars) for _ in range(random.randint(1, 3))]) + "\n}"
             return f"if ({cond}) {{\n{body}\n}}{else_body}"
             
         elif choice == 'while':
             # Simple loop to avoid infinite execution timeouts
-            loop_var = random.choice(['i', 'j', 'k'])
+            available_vars = [v for v in ['i', 'j', 'k'] if v not in active_loop_vars]
+            if not available_vars:
+                var = random.choice(['x', 'y', 'z', 'a', 'b', 'c'])
+                return f"{var} = {self.generate_expr(depth)};"
+
+            loop_var = random.choice(available_vars)
             limit = random.randint(1, 10)
             cond = f"{loop_var} < {limit}"
             
@@ -79,7 +86,8 @@ class Fuzzer:
             init = f"{loop_var} = 0;"
             inc = f"{loop_var} += 1;"
             
-            body = "\n".join([self.generate_statement(depth + 1, True) for _ in range(random.randint(1, 2))])
+            new_active = active_loop_vars | {loop_var}
+            body = "\n".join([self.generate_statement(depth + 1, True, new_active) for _ in range(random.randint(1, 2))])
             return f"{init}\nwhile ({cond}) {{\n{body}\n{inc}\n}}"
             
         return ""
