@@ -21,6 +21,7 @@ class TokenType(Enum):
     MINUS = "MINUS"
     MULTIPLY = "MULTIPLY"
     DIVIDE = "DIVIDE"
+    MODULO = "MODULO"
     ASSIGN = "ASSIGN"
     PLUS_ASSIGN = "PLUS_ASSIGN"
     MINUS_ASSIGN = "MINUS_ASSIGN"
@@ -91,6 +92,7 @@ class Lexer:
             '-': TokenType.MINUS,
             '*': TokenType.MULTIPLY,
             '/': TokenType.DIVIDE,
+            '%': TokenType.MODULO,
             '=': TokenType.ASSIGN,
             '>': TokenType.GREATER,
             '<': TokenType.LESS,

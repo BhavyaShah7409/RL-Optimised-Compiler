@@ -314,6 +314,8 @@ class TACToPythonGenerator:
                     '==', '!=', '<', '<=', '>', '>='):
             if op == '/':
                 self._emit(f"{res} = ({a1} / {a2} if ({a2}) != 0 else 0)")
+            elif op == '%':
+                self._emit(f"{res} = ({a1} % {a2} if ({a2}) != 0 else 0)")
             else:
                 self._emit(f"{res} = ({a1} {op} {a2})")
 
@@ -338,10 +340,12 @@ class TACToPythonGenerator:
             return f"({op}{a1})"
         if instr.arg2 is None and op == '!':
             return f"(not {a1})"
-        if op in ('+', '-', '*', '%', '==', '!=', '<', '<=', '>', '>='):
+        if op in ('+', '-', '*', '==', '!=', '<', '<=', '>', '>='):
             return f"({a1} {op} {a2})"
         if op == '/':
             return f"({a1} / {a2} if ({a2}) != 0 else 0)"
+        if op == '%':
+            return f"({a1} % {a2} if ({a2}) != 0 else 0)"
         if op == '&&':
             return f"({a1} and {a2})"
         if op == '||':

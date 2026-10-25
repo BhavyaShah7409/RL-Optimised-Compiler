@@ -464,7 +464,13 @@ function renderTokens(tokens) {
   }
 
   const kwSet = new Set(["PRINT", "SCAN", "WHILE", "IF", "ELSE"]);
-  const opSet = new Set(["PLUS", "MINUS", "MULTIPLY", "DIVIDE", "ASSIGN", "PLUS_ASSIGN", "MINUS_ASSIGN", "MULT_ASSIGN", "DIV_ASSIGN", "EQ", "NEQ", "LT", "GT", "LTE", "GTE", "NOT", "AND", "OR"]);
+  const opSet = new Set([
+    "PLUS", "MINUS", "MULTIPLY", "DIVIDE", "MODULO",
+    "ASSIGN", "PLUS_ASSIGN", "MINUS_ASSIGN",
+    "EQUAL", "NOT_EQUAL", "GREATER", "LESS", "GREATER_EQUAL", "LESS_EQUAL",
+    "EQ", "NEQ", "LT", "GT", "LTE", "GTE",
+    "NOT", "AND", "OR"
+  ]);
   const punctSet = new Set(["SEMICOLON", "LPAREN", "RPAREN", "LBRACE", "RBRACE", "COMMA"]);
 
   return tokens.map((tok, idx) => {

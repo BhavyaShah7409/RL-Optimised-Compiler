@@ -463,6 +463,7 @@ print(f);</textarea>
             <h3>Contents</h3>
             <ul>
               <li><a href="#overview" class="active">Overview</a></li>
+              <li><a href="#lang-specs">Language Specifications</a></li>
               <li><a href="#grammar-spec">Formal Grammar</a></li>
               <li><a href="#pipeline-stages">7-Stage Pipeline</a></li>
               <li><a href="#variables">Variables &amp; Scoping</a></li>
@@ -491,6 +492,163 @@ print(f);</textarea>
             </ul>
           </section>
 
+          <!-- 02. Language Specifications & Inventory -->
+          <section id="lang-specs" class="doc-section">
+            <h2>Language Specifications &amp; Inventory</h2>
+            <p>A rigorous inventory of all primitive data types, keywords, operators, delimiters, and lexical token categories supported by the compiler:</p>
+
+            <div class="doc-stats-grid">
+              <div class="doc-stat-card">
+                <div class="doc-stat-num">2</div>
+                <div class="doc-stat-label">Data Types</div>
+              </div>
+              <div class="doc-stat-card">
+                <div class="doc-stat-num">5</div>
+                <div class="doc-stat-label">Keywords</div>
+              </div>
+              <div class="doc-stat-card">
+                <div class="doc-stat-num">17</div>
+                <div class="doc-stat-label">Operators</div>
+              </div>
+              <div class="doc-stat-card">
+                <div class="doc-stat-num">5</div>
+                <div class="doc-stat-label">Delimiters</div>
+              </div>
+              <div class="doc-stat-card">
+                <div class="doc-stat-num">8</div>
+                <div class="doc-stat-label">Token Categories</div>
+              </div>
+              <div class="doc-stat-card">
+                <div class="doc-stat-num">32</div>
+                <div class="doc-stat-label">Token Types</div>
+              </div>
+            </div>
+
+            <h3>1. Data Types (2 Supported Types)</h3>
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th style="width: 20%;">Data Type</th>
+                  <th style="width: 25%;">Syntax / Format</th>
+                  <th style="width: 35%;">Description &amp; Behavior</th>
+                  <th style="width: 20%;">Target Mapping</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Number</code></td>
+                  <td><code>42</code>, <code>-10</code>, <code>3.14159</code></td>
+                  <td>64-bit IEEE 754 floating point. Integers and decimal fractions are unified; integer values format cleanly without trailing decimal zeros on output.</td>
+                  <td>Python <code>float</code> / <code>int</code></td>
+                </tr>
+                <tr>
+                  <td><code>String</code></td>
+                  <td><code>"..."</code> or <code>'...'</code></td>
+                  <td>Immutable UTF-8 textual character sequences supporting standard escape characters (<code>\n</code>, <code>\t</code>, <code>\"</code>, <code>\'</code>, <code>\\</code>).</td>
+                  <td>Python <code>str</code></td>
+                </tr>
+              </tbody>
+            </table>
+            <p><em>Boolean Representation:</em> Logical and relational operations evaluate to numerical <code>1</code> (True) and <code>0</code> (False). Branching constructs evaluate truthiness using non-zero value semantics.</p>
+
+            <h3>2. Reserved Keywords (5 Keywords)</h3>
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th style="width: 20%;">Keyword</th>
+                  <th style="width: 25%;">Category</th>
+                  <th style="width: 30%;">Signature / Usage</th>
+                  <th style="width: 25%;">Semantics</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>print</code></td>
+                  <td>I/O Statement</td>
+                  <td><code>print(expression);</code></td>
+                  <td>Serializes expression value to the standard output buffer with a trailing newline.</td>
+                </tr>
+                <tr>
+                  <td><code>scan</code></td>
+                  <td>I/O Statement</td>
+                  <td><code>scan(identifier);</code></td>
+                  <td>Consumes a line from standard input, parses as a float, and stores into the target variable.</td>
+                </tr>
+                <tr>
+                  <td><code>while</code></td>
+                  <td>Control Flow</td>
+                  <td><code>while (cond) { ... }</code></td>
+                  <td>Guarded pre-test iterative loop executing block while condition evaluates non-zero.</td>
+                </tr>
+                <tr>
+                  <td><code>if</code></td>
+                  <td>Control Flow</td>
+                  <td><code>if (cond) { ... }</code></td>
+                  <td>Conditional branching construct executed when condition evaluates non-zero.</td>
+                </tr>
+                <tr>
+                  <td><code>else</code></td>
+                  <td>Control Flow</td>
+                  <td><code>else { ... }</code></td>
+                  <td>Paired alternative branch executed when the preceding <code>if</code> condition evaluates to zero.</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3>3. Lexical Token Categories (8 Categories / 32 Token Types)</h3>
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th style="width: 25%;">Token Category</th>
+                  <th style="width: 15%;">Count</th>
+                  <th style="width: 60%;">Enum Variants (TokenType) &amp; Matching Patterns</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Literals</strong></td>
+                  <td>3</td>
+                  <td><code>NUMBER</code> (decimal / integer digits), <code>STRING</code> (quoted text), <code>IDENTIFIER</code> (names matching <code>[a-zA-Z_][a-zA-Z0-9_]*</code>)</td>
+                </tr>
+                <tr>
+                  <td><strong>Keywords</strong></td>
+                  <td>5</td>
+                  <td><code>PRINT</code>, <code>SCAN</code>, <code>WHILE</code>, <code>IF</code>, <code>ELSE</code></td>
+                </tr>
+                <tr>
+                  <td><strong>Arithmetic Operators</strong></td>
+                  <td>5</td>
+                  <td><code>PLUS</code> (<code>+</code>), <code>MINUS</code> (<code>-</code>), <code>MULTIPLY</code> (<code>*</code>), <code>DIVIDE</code> (<code>/</code>), <code>MODULO</code> (<code>%</code>)</td>
+                </tr>
+                <tr>
+                  <td><strong>Assignment Operators</strong></td>
+                  <td>3</td>
+                  <td><code>ASSIGN</code> (<code>=</code>), <code>PLUS_ASSIGN</code> (<code>+=</code>), <code>MINUS_ASSIGN</code> (<code>-=</code>)</td>
+                </tr>
+                <tr>
+                  <td><strong>Comparison Operators</strong></td>
+                  <td>6</td>
+                  <td><code>EQUAL</code> (<code>==</code>), <code>NOT_EQUAL</code> (<code>!=</code>), <code>GREATER</code> (<code>&gt;</code>), <code>LESS</code> (<code>&lt;</code>), <code>GREATER_EQUAL</code> (<code>&gt;=</code>), <code>LESS_EQUAL</code> (<code>&lt;=</code>)</td>
+                </tr>
+                <tr>
+                  <td><strong>Logical Operators</strong></td>
+                  <td>3</td>
+                  <td><code>AND</code> (<code>&amp;&amp;</code>), <code>OR</code> (<code>||</code>), <code>NOT</code> (<code>!</code>)</td>
+                </tr>
+                <tr>
+                  <td><strong>Delimiters &amp; Punctuation</strong></td>
+                  <td>5</td>
+                  <td><code>LPAREN</code> (<code>(</code>), <code>RPAREN</code> (<code>)</code>), <code>LBRACE</code> (<code>{</code>), <code>RBRACE</code> (<code>}</code>), <code>SEMICOLON</code> (<code>;</code>)</td>
+                </tr>
+                <tr>
+                  <td><strong>Stream &amp; Whitespace</strong></td>
+                  <td>2</td>
+                  <td><code>NEWLINE</code> (<code>\n</code>), <code>EOF</code> (end of input stream)</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
           <!-- 02. Formal Grammar -->
           <section id="grammar-spec" class="doc-section">
             <h2>Formal Grammar Specification (EBNF)</h2>
@@ -514,7 +672,7 @@ print(f);</textarea>
                 </tr>
                 <tr>
                   <td><code>AssignStmt</code></td>
-                  <td><code>IDENTIFIER ( "=" | "+=" | "-=" | "*=" | "/=" ) Expr ";"</code></td>
+                  <td><code>IDENTIFIER ( "=" | "+=" | "-=" ) Expr ";"</code></td>
                 </tr>
                 <tr>
                   <td><code>IfStmt</code></td>
@@ -562,7 +720,7 @@ print(f);</textarea>
                 </tr>
                 <tr>
                   <td><code>Multiplicative</code></td>
-                  <td><code>Unary { ( "*" | "/" ) Unary }</code></td>
+                  <td><code>Unary { ( "*" | "/" | "%" ) Unary }</code></td>
                 </tr>
                 <tr>
                   <td><code>Unary</code></td>
@@ -664,23 +822,25 @@ print(x);</pre>
           <!-- 05. Arithmetic -->
           <section id="arithmetic" class="doc-section">
             <h2>Expressions &amp; Mathematics</h2>
-            <p>Arithmetic expressions follow standard mathematical operator precedence (<code>*</code> and <code>/</code> bind tighter than <code>+</code> and <code>-</code>):</p>
+            <p>Arithmetic expressions follow standard mathematical operator precedence (<code>*</code>, <code>/</code>, and <code>%</code> bind tighter than <code>+</code> and <code>-</code>):</p>
             <div class="code-example">
               <pre class="code-block">a = 10;
 b = 3;
 print(a + b);
 print(a - b);
 print(a * b);
-print(a / b);</pre>
+print(a / b);
+print(a % b);</pre>
               <div class="code-output">
                 <h4>Output</h4>
                 <pre>13
 7
 30
-3.3333333333333335</pre>
+3.3333333333333335
+1</pre>
               </div>
             </div>
-            <p><strong>Division by zero protection:</strong> In order to eliminate fatal runtime exceptions in critical embedded loops, target code wraps divisions in a zero-check ternary: <code>(a / b if b != 0 else 0)</code>.</p>
+            <p><strong>Division &amp; Modulo Zero-Check Protection:</strong> To eliminate fatal runtime exceptions in critical execution loops, target code wraps divisions and modulos in zero-guard ternaries: <code>(a / b if b != 0 else 0)</code> and <code>(a % b if b != 0 else 0)</code>.</p>
           </section>
 
           <!-- 06. Control Flow -->
@@ -752,8 +912,8 @@ print(n * 2);</pre>
               <tbody>
                 <tr>
                   <td>Arithmetic</td>
-                  <td><code>+</code> <code>-</code> <code>*</code> <code>/</code></td>
-                  <td>Standard addition, subtraction, multiplication, and floating-point division.</td>
+                  <td><code>+</code> <code>-</code> <code>*</code> <code>/</code> <code>%</code></td>
+                  <td>Standard addition, subtraction, multiplication, floating-point division, and modulo remainder.</td>
                 </tr>
                 <tr>
                   <td>Relational</td>
@@ -767,8 +927,8 @@ print(n * 2);</pre>
                 </tr>
                 <tr>
                   <td>Assignment</td>
-                  <td><code>=</code> <code>+=</code> <code>-=</code> <code>*=</code> <code>/=</code></td>
-                  <td>Variable assignment and compound accumulation.</td>
+                  <td><code>=</code> <code>+=</code> <code>-=</code></td>
+                  <td>Variable assignment and compound accumulation (target must be defined).</td>
                 </tr>
                 <tr>
                   <td>Delimiters</td>

@@ -27,7 +27,7 @@ class Fuzzer:
             else:
                 return self.random_var()
                 
-        op = random.choice(['+', '-', '*', '/'])
+        op = random.choice(['+', '-', '*', '/', '%'])
         left = self.generate_expr(depth + 1)
         right = self.generate_expr(depth + 1)
         

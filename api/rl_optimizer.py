@@ -119,7 +119,7 @@ class RLOptimizer:
         for loop in loops:
             for i in range(loop['start'] + 1, loop['end']):
                 instr = code[i]
-                if instr.operation not in ('+', '-', '*', '/', 'ASSIGN'):
+                if instr.operation not in ('+', '-', '*', '/', '%', 'ASSIGN'):
                     continue
                 if not instr.result:
                     continue
@@ -229,7 +229,7 @@ class RLOptimizer:
         if position >= len(code):
             return code
         instr = code[position]
-        if instr.operation in ('+', '-', '*', '/') and instr.arg1 and instr.arg2 and self.is_constant(instr.arg1) and self.is_constant(instr.arg2):
+        if instr.operation in ('+', '-', '*', '/', '%') and instr.arg1 and instr.arg2 and self.is_constant(instr.arg1) and self.is_constant(instr.arg2):
             try:
                 v1, v2 = float(instr.arg1), float(instr.arg2)
                 if instr.operation == '+':
@@ -242,6 +242,10 @@ class RLOptimizer:
                     if v2 == 0:
                         return code
                     res = v1 / v2
+                elif instr.operation == '%':
+                    if v2 == 0:
+                        return code
+                    res = v1 % v2
                 else:
                     return code
 
@@ -303,7 +307,7 @@ class RLOptimizer:
         if position >= len(code):
             return code
         current = code[position]
-        if current.operation not in ('+', '-', '*', '/') or not current.arg1 or not current.arg2:
+        if current.operation not in ('+', '-', '*', '/', '%') or not current.arg1 or not current.arg2:
             return code
         for i in range(position - 1, -1, -1):
             if code[i].operation in ('LABEL', 'GOTO', 'IF_FALSE'):
@@ -373,6 +377,17 @@ class RLOptimizer:
             # x / x -> 1 (for variables)
             elif a1 == a2 and not self.is_constant(a1):
                 new_instr = ThreeAddressCode('ASSIGN', '1', None, res)
+
+        elif op == '%':
+            # x % 1 -> 0
+            if val2 == 1.0:
+                new_instr = ThreeAddressCode('ASSIGN', '0', None, res)
+            # 0 % x -> 0 (if x != 0)
+            elif val1 == 0.0 and val2 != 0.0:
+                new_instr = ThreeAddressCode('ASSIGN', '0', None, res)
+            # x % x -> 0 (for variables)
+            elif a1 == a2 and not self.is_constant(a1):
+                new_instr = ThreeAddressCode('ASSIGN', '0', None, res)
 
         if new_instr is not None:
             new_code = _deep_copy_code(code)
@@ -453,7 +468,7 @@ class RLOptimizer:
         current = code[position]
 
         # Constant folding
-        if (current.operation in ('+', '-', '*', '/') and current.arg1 and current.arg2
+        if (current.operation in ('+', '-', '*', '/', '%') and current.arg1 and current.arg2
                 and self.is_constant(current.arg1) and self.is_constant(current.arg2)):
             actions.append(OptimizationAction('constant_folding', position, 0.8))
         elif (current.operation in ('+', '-') and current.arg1 and current.arg2 is None
@@ -466,7 +481,7 @@ class RLOptimizer:
             actions.append(OptimizationAction('dead_code_elimination', position, 0.7))
 
         # Common subexpression elimination (within basic block)
-        if current.operation in ('+', '-', '*', '/') and current.arg1 and current.arg2:
+        if current.operation in ('+', '-', '*', '/', '%') and current.arg1 and current.arg2:
             for i in range(position - 1, -1, -1):
                 if code[i].operation in ('LABEL', 'GOTO', 'IF_FALSE'):
                     break
@@ -475,7 +490,7 @@ class RLOptimizer:
                     break
 
         # Algebraic simplification (identities: x + 0, x * 1, x * 0, x - 0, x / 1, x * 2, etc.)
-        if current.operation in ('+', '-', '*', '/') and current.arg1 and current.arg2 and current.result:
+        if current.operation in ('+', '-', '*', '/', '%') and current.arg1 and current.arg2 and current.result:
             v1 = self.try_parse_float(current.arg1)
             v2 = self.try_parse_float(current.arg2)
             # Only trigger if not both constants (constant folding handles pure constants)
@@ -488,6 +503,8 @@ class RLOptimizer:
                 elif current.operation == '*':
                     can_simplify = (v1 == 0.0 or v2 == 0.0 or v1 == 1.0 or v2 == 1.0 or v1 == 2.0 or v2 == 2.0)
                 elif current.operation == '/':
+                    can_simplify = (v2 == 1.0 or (v1 == 0.0 and v2 != 0.0) or (current.arg1 == current.arg2 and not self.is_constant(current.arg1)))
+                elif current.operation == '%':
                     can_simplify = (v2 == 1.0 or (v1 == 0.0 and v2 != 0.0) or (current.arg1 == current.arg2 and not self.is_constant(current.arg1)))
 
                 if can_simplify:

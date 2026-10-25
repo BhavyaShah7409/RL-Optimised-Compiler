@@ -212,7 +212,7 @@ class Parser:
     def parse_multiplication(self) -> Expression:
         expr = self.parse_unary()
         
-        while self.match(TokenType.MULTIPLY, TokenType.DIVIDE):
+        while self.match(TokenType.MULTIPLY, TokenType.DIVIDE, TokenType.MODULO):
             operator = self.current_token().value
             self.advance()
             right = self.parse_unary()
